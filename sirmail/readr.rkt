@@ -2678,7 +2678,19 @@
 			   (write-bytes (get) port))
 			 'truncate)
 		       (unless no-mime-inline?
-			 (let ([bitmap (make-object bitmap% tmp-file)])
+                         (define (maybe-scale bm)
+                           (define s (min (/ 400 (send bm get-width))
+                                          (/ 400 (send bm get-height))))
+                           (cond
+                            [(s . < . 1)
+                             (define bm2 (make-bitmap (ceiling (* s (send bm get-width)))
+                                                      (ceiling (* s (send bm get-height)))))
+                             (define dc (send bm2 make-dc))
+                             (send dc set-scale s s)
+                             (send dc draw-bitmap bm 0 0)
+                             bm2]
+                            [else bm]))
+			 (let ([bitmap (maybe-scale (make-object bitmap% tmp-file))])
 			   (when (send bitmap ok?)
 			     (insert (make-object image-snip% bitmap) void)
 			     (insert "\n" void))
