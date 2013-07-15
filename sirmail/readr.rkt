@@ -1914,7 +1914,7 @@
 
       ;; Optional GC icon (lots of work for this little thing!)
       (when (get-pref 'sirmail:show-gc-icon)
-	(let* ([gif (make-object bitmap% (build-path (collection-path "icons") "recycle.png"))]
+	(let* ([gif (make-object bitmap% (collection-file-path "recycle.png" "icons"))]
 	       [w (send gif get-width)]
 	       [h (send gif get-height)]
                [scale 1]
