@@ -1103,12 +1103,14 @@
             (make-object menu-item% "&New Message" file-menu
               (lambda (i e) (start-new-mailer #f "" "" "" "" "" null))
               #\m)
-            (make-object menu-item% "&Resume Message..." file-menu
+            (make-object menu-item% "&Resume Messages..." file-menu
               (lambda (i e) 
-                (let ([file (get-file "Select message to resume"
-                                      main-frame)])
-                  (when file
-                    (start-new-mailer file "" "" "" "" "" null)))))
+                (let ([files (get-file-list "Select messages to resume"
+                                            main-frame)])
+                  (when files
+                    (for-each (lambda (file)
+                                (start-new-mailer file "" "" "" "" "" null))
+                              files)))))
             (instantiate menu-item% () 
               (label "Send Queued Messages")
               (parent file-menu)
