@@ -9,38 +9,31 @@
 ;;     The `as-background' function is defined in "utilr.rkt".
 ;;
 
-(module readr mzscheme
-  (require mzlib/unit
-           mzlib/class
-           mzlib/file
+(module readr racket/base
+  (require racket/unit
+           racket/class
+           racket/file
+           racket/path
            mred/mred-sig
            framework
-           mzlib/process)
-
-  (require mzlib/string
-           mzlib/list
-           mzlib/thread
-           "spell.rkt")
-
-  (require "sirmails.rkt")
-
-  (require "pref.rkt")
-
-  (require net/imap-sig
+           racket/system
+           racket/string
+           racket/list
+           "spell.rkt"
+           "sirmails.rkt"
+           "pref.rkt"
+           net/imap-sig
            net/smtp-sig
            net/head-sig
            net/base64-sig
            net/mime-sig
            net/qp-sig
-           browser/htmltext)
+           browser/htmltext
+           mrlib/hierlist/hierlist-sig
+           net/sendurl
+           openssl/mzssl)
 
-  (require mrlib/hierlist/hierlist-sig)
-
-  (require net/sendurl)
-
-  (require openssl/mzssl)
-
-  (require (only racket/base log-error))
+  (require (only-in racket/base log-error))
 
   ;; Constant for messages without a title:
   (define no-subject-string "<No subject>")
@@ -172,13 +165,13 @@
 
       (define mailbox-ht #f)
       (define (rebuild-mailbox-table!)
-	(set! mailbox-ht (make-hash-table 'equal))
-	(for-each (lambda (m) (hash-table-put! mailbox-ht (vector-ref m 0) m))
+	(set! mailbox-ht (make-hash))
+	(for-each (lambda (m) (hash-set! mailbox-ht (vector-ref m 0) m))
 		  mailbox))
       (rebuild-mailbox-table!)
 
       (define (find-message id)
-	(hash-table-get mailbox-ht id (lambda () #f)))
+	(hash-ref mailbox-ht id (lambda () #f)))
       
       (define (message-uid m) (vector-ref m 0))
       (define (message-position m) (vector-ref m 1))
@@ -207,7 +200,7 @@
                         (newline))
                       (cons uid-validity (map vector->list mailbox)))
             (printf ")\n"))
-	  'truncate))
+	  #:exists 'truncate))
       
       ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
       ;;  Connection                                             ;;
@@ -412,7 +405,7 @@
 			 (with-output-to-file (build-path mailbox-dir (format "~a" (car position-uid)))
 			   (lambda ()
 			     (display header))
-			   'truncate))
+			   #:exists 'truncate))
 		       new new-headers))
 		    
 		    (set! mailbox 
@@ -514,7 +507,7 @@
 		(status "Saving message ~a..." uid)
 		(with-output-to-file file
 		  (lambda () (write-bytes body))
-		  'truncate)
+		  #:exists 'truncate)
                 
 		(set-message-downloaded?! v #t)
 		(write-mailbox))))
@@ -693,7 +686,7 @@
       
       (define vertical-line-snipclass
 	(make-object
-            (class snip-class% ()
+            (class snip-class%
               (define/override (read s)
                 (make-object vertical-line-snip%))
               (super-instantiate ()))))
@@ -1629,13 +1622,13 @@
 				(set-current-selected #f))
 			  (send header-list delete-item i)))))
 		items)
-               (let ([old-ids (make-hash-table 'equal)])
+               (let ([old-ids (make-hash)])
                  (for-each (lambda (m)
-                             (hash-table-put! old-ids (message-uid m) #t))
+                             (hash-set! old-ids (message-uid m) #t))
                            old-mailbox)
                  (for-each
                   (lambda (m)
-                    (unless (hash-table-get old-ids (message-uid m) #f)
+                    (unless (hash-ref old-ids (message-uid m) #f)
                       (let ([i (add-message m)])
                         (unless set-selection?
                           (set! set-selection? #t)
@@ -1916,7 +1909,7 @@
 
       ;; Optional GC icon (lots of work for this little thing!)
       (when (get-pref 'sirmail:show-gc-icon)
-	(let* ([gif (make-object bitmap% (collection-file-path "recycle.png" "icons"))]
+	(let* ([gif (read-bitmap (collection-file-path "recycle.png" "icons") #:try-@2x? #t)]
 	       [w (send gif get-width)]
 	       [h (send gif get-height)]
                [scale 1]
@@ -2167,7 +2160,7 @@
 	  (when ok?
 	    (set! prev-field-list find-field-list)
 	    (set! prev-field-regexp find-regexp)
-	    (sort-by (field<? find-fields (regexp find-regexp) (make-hash-table 'equal)))
+	    (sort-by (field<? find-fields (regexp find-regexp) (make-hash)))
 	    (reset-sorting-text-styles))))
       
       (define no-sort-style-delta (make-object style-delta% 'change-normal))
@@ -2204,8 +2197,7 @@
       ;; using the tz seems to require a date->seconds -- too expensive.
       (define (date-cmp aid bid a b)
 	(define (month->number mon)
-	  (string-lowercase! mon)
-	  (case (string->symbol mon)
+	  (case (string->symbol (string-downcase mon))
 	    [(jan) 1]
 	    [(feb) 2]
 	    [(mar) 3]
@@ -2258,7 +2250,7 @@
       (define (get-address msg)
         (let ([frm (message-from msg)])
           (if frm
-	      (hash-table-get
+	      (hash-ref
 	       address-memo-table
 	       frm
 	       (lambda ()
@@ -2269,12 +2261,12 @@
 						 frm
 						 'address))
 					   ""))])
-		   (hash-table-put! address-memo-table frm res)
+		   (hash-set! address-memo-table frm res)
 		   res)))
               "")))
 
       ;; get-address : message -> string
-      (define address-memo-table (make-hash-table 'equal))
+      (define address-memo-table (make-hash))
       
       (define ((field<? field-names rx ht) a b)
 	(let ([a? (match-field a field-names rx ht)]
@@ -2285,7 +2277,7 @@
 	   [else (< (message-uid a) (message-uid b))])))
       
       (define (match-field msg field-names rx ht)
-	(hash-table-get
+	(hash-ref
 	 ht
 	 msg
 	 (lambda ()
@@ -2298,7 +2290,7 @@
 					(regexp-match rx fld)
 					#t))
 				 flds)])
-		 (hash-table-put! ht msg res)
+		 (hash-set! ht msg res)
 		 res))))))
       
       (define re:re (regexp "^[rR][eE]: *(.*)"))
@@ -2357,10 +2349,10 @@
          close-frame))
       
       (define (sort-by-fields fields)
-	(let* ([ht (make-hash-table)]
+	(let* ([ht (make-hasheq)]
 	       [get-header/cached 
 		(lambda (uid first-field)
-		  (hash-table-get
+		  (hash-ref
 		   ht
 		   uid
 		   (lambda ()
@@ -2370,7 +2362,7 @@
 					  (extract-field 
 					   first-field 
 					   h)))])
-		       (hash-table-put! ht uid p)
+		       (hash-set! ht uid p)
 		       p))))])
 	  (as-background
 	   enable-main-frame
@@ -2561,7 +2553,7 @@
 					      (with-output-to-file fn
 						(lambda ()
 						  (write-bytes content))
-						'truncate/replace))
+                                                #:exists 'truncate/replace))
 					    close-frame))])
 				    (insert-separator)
 				    (insert (format "[~a/~a~a~a]" 
@@ -2667,8 +2659,8 @@
 						  (lambda (t s e)
 						    (when (SHOW-URLS) (hilite-urls t s e))
 						    ;;(handle-formatting e) ; too slow
-						    (if (eq? disp 'error)
-							(send t change-style red-delta s e)))))
+						    (when (eq? disp 'error)
+                                                      (send t change-style red-delta s e)))))
 					done))])]
                               [else
                                (generic ent)]))]
@@ -2678,7 +2670,7 @@
 		       (call-with-output-file tmp-file
 			 (lambda (port)
 			   (write-bytes (get) port))
-			 'truncate)
+			 #:exists 'truncate)
 		       (unless no-mime-inline?
                          (define (maybe-scale bm)
                            (define s (min (/ 400 (send bm get-width))
@@ -3045,7 +3037,7 @@
           (parameterize ([current-eventspace (make-eventspace)])
             (queue-callback
              (lambda ()
-               (let ([ht (make-hash-table)])
+               (let ([ht (make-hasheq)])
                  (let loop ([mailbox mailbox])
                    (cond
                      [(empty? mailbox) (void)]
@@ -3060,17 +3052,17 @@
                         (when uptime-str
                           (let ([uptime (parse-uptime uptime-str)])
                             (when uptime
-                              (hash-table-put! 
+                              (hash-set! 
                                ht
                                key
                                (cons
                                 uptime
-                                (hash-table-get ht key (lambda () '()))))))))
+                                (hash-ref ht key (lambda () '()))))))))
                       (loop (cdr mailbox))]))
                  
                  (let ([info 
                         (sort 
-                         (hash-table-map ht (lambda (x y) (list (symbol->string x) y)))
+                         (hash-map ht (lambda (x y) (list (symbol->string x) y)))
                          (lambda (x y) (string<=? (car x) (car y))))])
                    (parameterize ([current-eventspace mbox-eventspace])
                      (queue-callback
