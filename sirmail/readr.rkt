@@ -605,6 +605,9 @@
       (define SUBJECT-WIDTH 300)
       (define UID-WIDTH 150)
 
+      (define sorting-from-snip #f)
+      (define header-list #f)
+
       ;; update-frame-width : -> void
       ;; updates the green line's width
       ;; preferences's value of sirmail:frame-width must be 
@@ -1789,7 +1792,7 @@
                              (parent top-half)
                              (stretchable-height #f)
 			     (vertical-inset 1)))
-      (define header-list (make-object header-list% top-half))
+      (set! header-list (make-object header-list% top-half))
       (send (send header-list get-editor) set-line-spacing 0)
       (define message (new canvas:color% 
 			   [parent sizing-panel]
@@ -1893,6 +1896,8 @@
                     d
                     e-msg))))
       
+      (define enqueued-messages? #f)
+
       (thread
        (lambda ()
          (let loop ()
@@ -2053,7 +2058,7 @@
           (send es set-flags (remove 'handles-events (send es get-flags)))
           es))
       (send sorting-list set-line-count 1)
-      (define sorting-from-snip (add-sorting-es sorting-text-from FROM-WIDTH))
+      (set! sorting-from-snip (add-sorting-es sorting-text-from FROM-WIDTH))
       (send sorting-text insert (make-object vertical-line-snip%))
       (define sorting-subject-snip (add-sorting-es sorting-text-subject SUBJECT-WIDTH))
       (send sorting-text insert (make-object vertical-line-snip%))
@@ -2443,9 +2448,10 @@
       
       ;; enqueued-messages? : -> bool
       ;; returns true if there are messages to send
-      (define (enqueued-messages?)
-	(not (= 0 (length (directory-list queue-directory)))))
-
+      (set! enqueued-messages?
+            (lambda ()
+              (not (= 0 (length (directory-list queue-directory))))))
+            
       ;; send-queued-messsages : -> void
       ;; sends the files queued in `queue-directory'
       (define (send-queued-messages)
