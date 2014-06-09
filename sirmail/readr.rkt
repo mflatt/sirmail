@@ -2298,17 +2298,20 @@
 		 (hash-set! ht msg res)
 		 res))))))
       
-      (define re:re (regexp "^[rR][eE]: *(.*)"))
+      (define re:re (regexp "^(?:[rR][eE]: *|[fF][wW][dD]?: *)+(.*)"))
       ;; subject<? : message message -> boolean
       ;; compares messages by subject lines, defaults to uid if subjects are equal.
       (define (subject<? a b)
 	(let ([simplify (lambda (msg)
-			  (let ([s (message-subject msg)])
+			  (let ([s (parse-encoded (message-subject msg))])
                             (if s
-                                (let ([m (regexp-match re:re s)])
-                                  (if m
-                                      (cadr m)
-                                      s))
+                                (regexp-replace*
+                                 #px"\\s+" ; to clean up line breaks
+                                 (let ([m (regexp-match re:re s)])
+                                   (if m
+                                       (cadr m)
+                                       s))
+                                 " ")
                                 "")))])
           (string-cmp/default-uid (simplify a) (simplify b) a b)))
 
@@ -2606,6 +2609,17 @@
 				    (unless content
 				      (set! content (slurp ent)))
 				    content)))])
+                (unless (or skip-headers?
+                            (null? (mime:message-fields msg)))
+                  (insert (string-crlf->lf
+                           (get-viewable-headers
+                            (let loop ([l (mime:message-fields msg)])
+                              (if (null? l)
+                                  crlf
+                                  (string-append (car l)
+                                                 crlf
+                                                 (loop (cdr l)))))))
+                          void))
 		(case (mime:entity-type ent)
 		  [(text) (let ([disp (mime:disposition-type (mime:entity-disposition ent))])
                             (cond
@@ -2697,17 +2711,6 @@
 			   (delete-file tmp-file)))))]
 		  [(message)
 		   (insert-separator)
-		   (unless (or skip-headers?
-			       (null? (mime:message-fields msg)))
-		     (insert (string-crlf->lf
-			      (get-viewable-headers
-			       (let loop ([l (mime:message-fields msg)])
-				 (if (null? l)
-				     crlf
-				     (string-append (car l)
-						    crlf
-						    (loop (cdr l)))))))
-			     void))
 		   (map (lambda (x) (mime-loop x #f)) (mime:entity-parts ent))]
 		  [(multipart)
 		   (cond
