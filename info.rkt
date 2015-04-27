@@ -8,4 +8,5 @@
                "gui-lib"
                "net-lib"
                "parser-tools-lib"
-               "scheme-lib"))
+               "scheme-lib"
+               "syntax-color-lib"))

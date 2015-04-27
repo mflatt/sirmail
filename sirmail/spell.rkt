@@ -1,13 +1,14 @@
-(module spell mzscheme
+(module spell racket/base
   (require parser-tools/lex
-           (prefix : parser-tools/lex-sre)
+           (prefix-in : parser-tools/lex-sre)
            mzlib/class
            mzlib/string
            mzlib/list
            framework
            mzlib/contract
 	   mzlib/file
-           mzlib/process)
+           mzlib/process
+           syntax-color/module-lexer)
   
   (provide/contract [activate-spelling ((is-a?/c color:text<%>) . -> . void?)]
                     [word-count (-> number?)])
@@ -21,8 +22,10 @@
     (word (:: (:* extended-alphabetic) (:+ cased-alphabetic) (:* extended-alphabetic)))
     (paren (char-set "()[]{}")))
                                    
-  (define get-word
-    (lexer 
+  (define get-word-lex
+    (lexer
+     ("```"
+      (values lexeme 'keyword #f (position-offset start-pos) (position-offset end-pos)))
      ((:+ whitespace)
       (values lexeme 'white-space #f (position-offset start-pos) (position-offset end-pos)))
      (paren
@@ -34,6 +37,41 @@
         (values lexeme (if ok 'other 'error) #f (position-offset start-pos) (position-offset end-pos))))
      ((eof)
       (values lexeme 'eof #f #f #f))))
+
+  (struct mod-mode (mode backquotes))
+  
+  (define (get-word in offset mode)
+    ;; mode is one of
+    ;;  * #f - out of ``` region
+    ;;  * (mod-mode mod-mode prev-quotes), where `prev-quotes` keeps track of
+    ;;    preceeding `s as needed to track backup
+    (cond
+     [(not mode)
+      ;; Not in ``` region?
+      (define-values (content type paren start end) (get-word-lex in))
+      (if (eq? type 'keyword)
+          (values content type paren start end 0 (mod-mode #f 0))
+          (values content type paren start end 0 #f))]
+     [(regexp-match-peek #px"^\\s*```" in)
+      ;; Found end of ``` region
+      (define-values (content type paren start end) (get-word-lex in))
+      (if (eq? type 'keyword)
+          ;; Go out of ``` mode
+          (values content type paren start end 0 #f)
+          ;; Must have found whitespace before ```, stay in ``` mode
+          (values content type paren start end 0 (mod-mode #f 0)))]
+     [else
+      ;; In ``` region (that hasn't ended)
+      (define-values (content type paren start end backup new-mode)
+        (module-lexer in offset (mod-mode-mode mode)))
+      (define backquote? (equal? content "`"))
+      (define full-backup
+        (max backup (mod-mode-backquotes mode)))
+      (define full-mode (mod-mode new-mode
+                                  (if backquote?
+                                      (add1 (mod-mode-backquotes mode))
+                                      0)))
+      (values content type paren start end full-backup full-mode)]))
   
   (define (activate-spelling t)
     (send t start-colorer
@@ -59,35 +97,36 @@
     (let ([c (make-channel)])
       (channel-put word-count-chan c)
       (channel-get c)))
-  
-  (thread
-   (lambda ()
-     (let ([bad-dict (make-hash-table 'equal)])
-       (let loop ([computed? #f]
-                  [dict #f])
-         (sync
-          (handle-evt
-           ask-chan
-           (lambda (lst)
-             (let-values ([(answer-chan give-up-chan word) (apply values lst)])
-               (let ([computed-dict (if computed?
-                                        dict
-                                        (fetch-dictionary))])
-                 (sync
-                  (handle-evt
-                   (channel-put-evt answer-chan (check-word computed-dict bad-dict word))
-                   (lambda (done)
-                     (loop #t computed-dict)))
-                  (handle-evt
-                   give-up-chan
-                   (lambda (done)
-                     (loop #t computed-dict))))))))
-          (handle-evt
-           word-count-chan
-           (lambda (ans)
-             (let ([count (if dict (hash-table-count dict) 0)])
-               (thread (lambda () (channel-put ans count))))
-             (loop computed? dict))))))))
+
+  (void
+   (thread
+    (lambda ()
+      (let ([bad-dict (make-hash)])
+        (let loop ([computed? #f]
+                   [dict #f])
+          (sync
+           (handle-evt
+            ask-chan
+            (lambda (lst)
+              (let-values ([(answer-chan give-up-chan word) (apply values lst)])
+                (let ([computed-dict (if computed?
+                                         dict
+                                         (fetch-dictionary))])
+                  (sync
+                   (handle-evt
+                    (channel-put-evt answer-chan (check-word computed-dict bad-dict word))
+                    (lambda (done)
+                      (loop #t computed-dict)))
+                   (handle-evt
+                    give-up-chan
+                    (lambda (done)
+                      (loop #t computed-dict))))))))
+           (handle-evt
+            word-count-chan
+            (lambda (ans)
+              (let ([count (if dict (hash-count dict) 0)])
+                (thread (lambda () (channel-put ans count))))
+              (loop computed? dict)))))))))
 
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;;
@@ -184,7 +223,7 @@
   ;; fetch-dictionary : -> (union #f hash-table)
   ;; computes a dictionary, if any of the possible-file-names exist
   ;; for now, just return an empty table. Always use ispell
-  (define (fetch-dictionary) (make-hash-table 'equal))
+  (define (fetch-dictionary) (make-hash))
   
   (define (fetch-dictionary/not-used)
     (let* ([possible-file-names '("/usr/share/dict/words"
@@ -193,8 +232,8 @@
                                   "/usr/dict/words")]
            [good-file-names (filter file-exists? possible-file-names)])
       (and (not (null? good-file-names))
-	   (let ([d (make-hash-table 'equal)])
-	     (for-each (lambda (word) (hash-table-put! d word #t)) extra-words)
+	   (let ([d (make-hash)])
+	     (for-each (lambda (word) (hash-set! d word #t)) extra-words)
 	     (for-each 
 	      (lambda (good-file-name)
 		(call-with-input-file* good-file-name
@@ -202,15 +241,15 @@
 					 (let loop ()
 					   (let ((word (read-line i)))
 					     (unless (eof-object? word)
-						     (hash-table-put! d word #t)
+						     (hash-set! d word #t)
 						     (loop)))))))
 	      good-file-names)
 	     d))))
   
   ;; check-word : hash-table hash-table string -> boolean
   (define (check-word dict bad-dict word)
-    (let* ([word-ok (lambda (w) (hash-table-get dict w (lambda () #f)))]
-           [word-bad (lambda (w) (hash-table-get bad-dict w (lambda () #f)))]
+    (let* ([word-ok (lambda (w) (hash-ref dict w #f))]
+           [word-bad (lambda (w) (hash-ref bad-dict w #f))]
            [subword-ok (lambda (reg)
                          (let ([m (regexp-match reg word)])
                            (and m
@@ -223,7 +262,7 @@
             [else
              (let ([ispell-ok (ispell-word word)])
                (if ispell-ok 
-                   (hash-table-put! dict word #t)
-                   (hash-table-put! bad-dict word #t))
+                   (hash-set! dict word #t)
+                   (hash-set! bad-dict word #t))
                 ispell-ok)])
           #t))))
