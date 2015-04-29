@@ -35,6 +35,8 @@
      (word
       (let ((ok (spelled-correctly? lexeme)))
         (values lexeme (if ok 'other 'error) #f (position-offset start-pos) (position-offset end-pos))))
+     ((special)
+      (values "." 'other (position-offset start-pos) (position-offset end-pos)))
      ((eof)
       (values lexeme 'eof #f #f #f))))
 
@@ -52,7 +54,7 @@
       (if (eq? type 'keyword)
           (values content type paren start end 0 (mod-mode #f 0))
           (values content type paren start end 0 #f))]
-     [(regexp-match-peek #px"^\\s*```" in)
+     [(starts-whitespace+backquotes? in)
       ;; Found end of ``` region
       (define-values (content type paren start end) (get-word-lex in))
       (if (eq? type 'keyword)
@@ -72,6 +74,17 @@
                                       (add1 (mod-mode-backquotes mode))
                                       0)))
       (values content type paren start end full-backup full-mode)]))
+  
+  (define (starts-whitespace+backquotes? in)
+    (let ws-loop ([pos 0])
+      (define c (peek-char-or-special in pos))
+      (cond
+       [(not (char? c)) #f]
+       [(char-whitespace? c) (ws-loop (add1 pos))]
+       [(char=? c #\`)
+        (and (eq? #\` (peek-char-or-special in (+ 1 pos)))
+             (eq? #\` (peek-char-or-special in (+ 2 pos))))]
+       [else #f])))
   
   (define (activate-spelling t)
     (send t start-colorer

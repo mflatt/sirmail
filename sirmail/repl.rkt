@@ -10,12 +10,12 @@
                cust)) ; custodian to shut down
 
 ;; represents a change to message content due to evaluation:
-(struct insert (start end str)) 
+(struct insert (start end editor))
 
 ;; Check for changes between ```s, and adjust results in the editor
 ;; via evaluation as needed
 (define (execute-message-repls editor show-error call-as-background start-pos s)
-  (define p (open-input-text-editor editor start-pos))
+  (define p (open-input-string (substring (send editor get-flattened-text) start-pos)))
   (port-count-lines! p)
   (define-values (texts offsets) (extract-code-blocks p start-pos))
   (cond
@@ -37,7 +37,8 @@
          cust
          (lambda ()
            (run-code texts
-                     (lambda (str)
+                     (lambda (e)
+                       (define str (send e get-flattened-text))
                        (unless (equal? "" str)
                          (unless shown?
                            (set! shown? #t)
@@ -79,7 +80,7 @@
         (send editor delete start-pos (+ offset (insert-end insert)))
         (define start-at-caret? (= start-pos (send editor get-start-position)))
         (define end-at-caret? (= start-pos (send editor get-end-position)))
-        (send editor insert (insert-str insert) start-pos)
+        (copy-editor editor (insert-editor insert) start-pos)
         (when (or start-at-caret? end-at-caret?)
           (send editor set-position
                 (if start-at-caret?
@@ -90,13 +91,31 @@
                     (send editor get-end-position))))))
     (send editor end-edit-sequence)))
 
+(define (copy-editor dest src start-pos)
+  (let loop ([start-pos start-pos]
+             [snip (send src find-first-snip)])
+    (when snip
+      (send dest insert (send snip copy) start-pos)
+      (loop (+ start-pos (send snip get-count))
+            (send snip next)))))
+
+(define (indent-output editor indent)
+  (unless (zero? indent)
+    (let loop ([para 0] [pos -1])
+      (define new-pos (send editor paragraph-start-position para))
+      (unless (or (= new-pos pos)
+                  (= new-pos (send editor last-position)))
+        (send editor insert (make-string indent #\space) new-pos)
+        (loop (add1 para) new-pos))))
+  (send editor insert "\n" 0))
+
 ;; apply `insert`s to the extracted text, for the no-op shortcut
 (define (apply-changes-to-text texts insertss)
   (for/list ([text (in-list texts)]
              [inserts (in-list insertss)])
     (for/fold ([text text]) ([insert (in-list (reverse inserts))])
       (string-append (substring text 0 (min (string-length text) (insert-start insert)))
-                     (insert-str insert)
+                     (send (insert-editor insert) get-flattened-text)
                      (substring text (min (string-length text) (insert-end insert)))))))
 
 ;; evaluate ``` blocks; when we find a module, then
@@ -117,7 +136,7 @@
             (do-eval #f (lambda ()
                           (call-with-sandbox-config
                            (lambda ()
-                             (make-module-evaluator text))))))
+                             (install-printer (make-module-evaluator text)))))))
           (show-error stderr)
           (values (and (not (void? evals))
                        (car evals))
@@ -127,7 +146,7 @@
           (values
            (call-with-sandbox-config
             (lambda ()
-              (make-evaluator 'racket)))
+              (install-printer (make-evaluator 'racket))))
            text)]
          [else
           ;; continue using the evaluator
@@ -169,19 +188,12 @@
                                                           (new-e (datum->syntax #f expr)))))
                   (define m (regexp-match #px"\n\\s*(?:(?=>)|`*$)" i))
                   (define end-pos (file-char-position i))
+                  (indent-output out indent)
                   (cons (insert start-pos
                                 (if m
                                     (- end-pos (sub1 (string-length (bytes->string/utf-8 (car m)))))
                                     end-pos)
-                                (if (string=? out "")
-                                    "\n"
-                                    (string-append "\n"
-                                                   ;; Indent result text:
-                                                   (regexp-replace*
-                                                    #rx"(?m:^)"
-                                                    (regexp-replace #rx"\n$" out "")
-                                                    (make-string indent #\space))
-                                                   "\n")))
+                                out)
                         (loop))])])]
              [m
               ;; Found an empty prompt; skip it
@@ -203,23 +215,46 @@
        (thunk)))))
 
 (define (do-eval e thunk)
-  (define o (open-output-string))
+  (define editor (new text%))
+  (define o (open-output-text-editor editor #:eventspace #f))
   (values
    (with-handlers ([void (lambda (exn)
                            (if (exn? exn)
                                (fprintf o "~a\n" (exn-message exn))
                                (fprintf o "~s\n" exn)))])
+     (when e
+       (call-in-sandbox-context e (lambda ()
+                                    (current-output-port o)
+                                    (current-error-port o))))
      (define vs (call-with-values thunk list))
      (when e
        (call-in-sandbox-context e (lambda ()
                                     (map (current-print) vs)))
        (display (get-output e) o))
      vs)
-   (get-output-string o)))
+   editor))
 
 (define (file-char-position i)
   (define-values (line col pos) (port-next-location i))
   (sub1 pos))
+
+;; ----------------------------------------
+;; Pretty printing
+
+(define (install-printer e)
+  (call-in-sandbox-context e (lambda ()
+                               (current-print
+                                (dynamic-require 'racket/pretty 'pretty-print-handler))
+                               ((dynamic-require 'racket/pretty 'pretty-print-size-hook)
+                                (lambda (v display? p)
+                                  (if (and (port-writes-special? p)
+                                           (v . is-a? . snip%))
+                                      1
+                                      #f)))
+                               ((dynamic-require 'racket/pretty 'pretty-print-print-hook)
+                                (lambda (v display? p)
+                                  (write-special v p)))))
+  e)
 
 ;; ----------------------------------------
 ;; Breakabale
