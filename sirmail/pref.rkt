@@ -103,6 +103,8 @@
 			   (lambda (x) (and (list? x) (andmap string? x))))
   (preferences:set-default 'sirmail:bcc #f
                            (λ (x) (or (not x) (string? x))))
+  (preferences:set-default 'sirmail:x-mailer-header #t boolean?)
+  (preferences:set-default 'sirmail:message-columns 80 exact-positive-integer?)
 
   (let ([fw 560]
 	[fh 600])
@@ -121,6 +123,7 @@
   (preferences:set-default 'sirmail:folder-window-h 400 xywh-okay?)
   (preferences:set-default 'sirmail:folder-window-x 0 xywh-okay?)
   (preferences:set-default 'sirmail:folder-window-y 0 xywh-okay?)
+
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;  Preference Manager                                     ;;

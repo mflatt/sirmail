@@ -15,7 +15,8 @@
 
   (require "sirmails.rkt"
            "pref.rkt"
-           "spell.rkt")
+           "spell.rkt"
+           "repl.rkt")
 
   (require net/imap-sig
            net/smtp-sig
@@ -74,7 +75,7 @@
 		   (send send-icon-mask ok?))
 	(set! send-icon #f))
 
-      (define SEPARATOR (make-string 75 #\=))
+      (define SEPARATOR (make-string (max 5 (- (get-pref 'sirmail:message-columns) 5)) #\=))
 
       ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
       ;;  Address Parsing                                       ;;
@@ -384,11 +385,37 @@
                                                 (set! immutable-end end)
                                                 (reset-region end 'end))
                                               
+                                              (define queued (box #f))
+                                              (define execute-state #f)
+                                              (define/private (queue-execute)
+                                                (define q (box #t))
+                                                (set-box! queued #f)
+                                                (set! queued q)
+                                                (thread
+                                                 (lambda ()
+                                                   (sleep 0.5)
+                                                   (queue-callback
+                                                    (lambda ()
+                                                      (when (unbox q)
+                                                        (set! execute-state
+                                                              (execute-message-repls this
+                                                                                     (lambda (str)
+                                                                                       (send mailer-frame set-status-text str))
+                                                                                     (lambda (background-callback)
+                                                                                       (as-background
+                                                                                        enable
+                                                                                        background-callback
+                                                                                        void))
+                                                                                     immutable-end
+                                                                                     execute-state))))
+                                                    #f))))
+                                              
                                               (define/augment (can-insert? start len)
                                                 (and (or (<= start immutable-start)
                                                          (>= start immutable-end))
                                                      (inner #t can-insert? start len)))
                                               (define/augment (after-insert start len)
+                                                (queue-execute)
                                                 (when (<= start immutable-start)
 						  (set! immutable-start (+ immutable-start len))
 						  (set! immutable-end (+ immutable-end len))
@@ -400,6 +427,7 @@
                                                          (>= start immutable-end))
                                                      (inner #t can-delete? start len)))
                                               (define/augment (after-delete start len)
+                                                (queue-execute)
                                                 (when (<= start immutable-start)
 						  (set! immutable-start (- immutable-start len))
 						  (set! immutable-end (- immutable-end len))
@@ -644,7 +672,7 @@
           (send km map-function ":m:return" "send-message")
           (send km map-function ":a:return" "send-message"))
         
-        (make-fixed-width c message-editor #t return-bitmap)
+        (make-fixed-width c message-editor #t return-bitmap (get-pref 'sirmail:message-columns))
         (send message-editor set-paste-text-only #t)
         (send message-editor set-max-undo-history 'forever)
         (send c set-editor message-editor)
@@ -683,13 +711,14 @@
                   (send message-editor insert bcc-header)
                   (send message-editor insert #\newline)))
               (send message-editor insert (string-crlf->lf other-headers))
-              (send message-editor insert "X-Mailer: SirMail under GRacket ")
-              (send message-editor insert (version))
-              (send message-editor insert " (")
-              (send message-editor insert (path->string (system-library-subpath)))
-              (send message-editor insert ")")
-              (let ([start-no-change (send message-editor last-position)])
-                (send message-editor insert #\newline)
+              (when (get-pref 'sirmail:x-mailer-header)
+                (send message-editor insert "X-Mailer: SirMail under GRacket ")
+                (send message-editor insert (version))
+                (send message-editor insert " (")
+                (send message-editor insert (path->string (system-library-subpath)))
+                (send message-editor insert ")")
+                (send message-editor insert #\newline))
+              (let ([start-no-change (sub1 (send message-editor last-position))])
                 (send message-editor insert SEPARATOR)
                 (send message-editor insert #\newline)
                 (send message-editor set-no-change-region 

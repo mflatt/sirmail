@@ -187,7 +187,7 @@
 			     (lambda ()
 			       (semaphore-wait adjust-break)
 			       (if break-ok?
-				   (break-thread t)
+                                   (break-thread t)
 				   (let ([v (break-really-hard? (lambda (d) 
 								  (set! breaking-dialog d)
 								  (semaphore-post adjust-break)))])
@@ -208,7 +208,7 @@
 
       ;; the actual fixed width font is already set by
       ;; the editor:standard-style-list-mixin
-      (define (make-fixed-width c e wrap? wrap-bm)
+      (define (make-fixed-width c e wrap? wrap-bm message-columns)
 	(let ([s (send (send e get-style-list)
 		       find-named-style "Standard")])
 	  (send e set-tabs null 8 #f)
@@ -219,7 +219,7 @@
 	    (send e get-view-size wbox hbox)
 	    (let-values ([(w h) (send c get-size)]
 			 [(1w 1h d a) (send dc get-text-extent "X" font)])
-	      (let ([80chars (+ (* 1w 80)
+	      (let ([80chars (+ (* 1w message-columns)
 				2 ; +2 for caret
 				(if wrap-bm 
 				    (send wrap-bm get-width) 

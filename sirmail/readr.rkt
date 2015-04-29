@@ -1807,7 +1807,7 @@
 	((current-text-keymap-initializer) (send e get-keymap))
 	(send e set-max-undo-history 0)
 	(send message set-editor e)
-	(make-fixed-width message e #f #f)
+	(make-fixed-width message e #f #f (get-pref 'sirmail:message-columns))
 	(let ([b (make-object bitmap% (build-path (collection-path "icons") "return.xbm") 'xbm)])
 	  (when (send b ok?)
 	    (send e set-autowrap-bitmap b)))

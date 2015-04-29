@@ -9,4 +9,5 @@
                "net-lib"
                "parser-tools-lib"
                "scheme-lib"
-               "syntax-color-lib"))
+               "syntax-color-lib"
+               "sandbox-lib"))
