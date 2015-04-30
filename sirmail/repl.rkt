@@ -18,7 +18,7 @@
 (define (execute-message-repls editor show-error call-as-background start-pos s)
   (define p (open-input-string (substring (send editor get-flattened-text) start-pos)))
   (port-count-lines! p)
-  (define-values (texts offsets kinds) (extract-code-blocks p start-pos))
+  (define-values (texts kinds offsets) (extract-code-blocks p start-pos))
   (cond
    [(and s
          (equal? texts (state-texts s))
@@ -62,7 +62,7 @@
  
 ;; get all sequences between ```s
 (define (extract-code-blocks p start-pos)
-  (let loop ([texts null] [offsets null] [kinds null] [output? #f])
+  (let loop ([texts null] [kinds null] [offsets null] [output? #f])
     (cond
      [(and (not output?) (regexp-try-match #rx"^Output:\n(?m:```.*)" p))
       (loop texts kinds offsets #t)]
@@ -71,13 +71,13 @@
       (define o (open-output-string))
       (regexp-match #rx"(?m:^```.*)" p 0 #f o)
       (loop (cons (get-output-string o) texts)
-            (cons (+ pos start-pos) offsets)
             (cons (if output? 'output 'code) kinds)
+            (cons (+ pos start-pos) offsets)
             #f)]
      [(eof-object? (read-line p))
-      (values (reverse texts) (reverse offsets) (reverse kinds))]
+      (values (reverse texts) (reverse kinds) (reverse offsets))]
      [else
-      (loop texts offsets kinds #f)])))
+      (loop texts kinds offsets #f)])))
 
 ;; apply `insert`s to the message editor
 (define (apply-changes-to-editor! editor insertss offsets)
