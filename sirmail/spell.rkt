@@ -24,7 +24,7 @@
                                    
   (define get-word-lex
     (lexer
-     ("```"
+     ((:: "```" (:* (:~ #\newline)))
       (values lexeme 'keyword #f (position-offset start-pos) (position-offset end-pos)))
      ((:+ whitespace)
       (values lexeme 'white-space #f (position-offset start-pos) (position-offset end-pos)))

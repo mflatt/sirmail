@@ -7,19 +7,22 @@
 
 ;; previous evaluation status:
 (struct state (texts  ; old result, to enable a no-op shortcut
+               kinds  ; also old result
                cust)) ; custodian to shut down
 
 ;; represents a change to message content due to evaluation:
-(struct insert (start end editor))
+(struct insert (start end editor new?))
 
 ;; Check for changes between ```s, and adjust results in the editor
 ;; via evaluation as needed
 (define (execute-message-repls editor show-error call-as-background start-pos s)
   (define p (open-input-string (substring (send editor get-flattened-text) start-pos)))
   (port-count-lines! p)
-  (define-values (texts offsets) (extract-code-blocks p start-pos))
+  (define-values (texts offsets kinds) (extract-code-blocks p start-pos))
   (cond
-   [(and s (equal? texts (state-texts s)))
+   [(and s
+         (equal? texts (state-texts s))
+         (equal? kinds (state-kinds s)))
     ;; No change to code; same state
     s]
    [else
@@ -37,6 +40,7 @@
          cust
          (lambda ()
            (run-code texts
+                     kinds
                      (lambda (e)
                        (define str (send e get-flattened-text))
                        (unless (equal? "" str)
@@ -51,23 +55,29 @@
     (cond
      [insertss
       (apply-changes-to-editor! editor insertss offsets)
-      (define new-texts (apply-changes-to-text texts insertss))
-      (state new-texts cust)]
+      (define-values (new-texts new-kinds) (apply-changes-to-text texts kinds insertss))
+      (state new-texts new-kinds cust)]
      [else
       s])]))
  
 ;; get all sequences between ```s
 (define (extract-code-blocks p start-pos)
-  (let loop ([texts null] [offsets null])
+  (let loop ([texts null] [offsets null] [kinds null] [output? #f])
     (cond
-     [(regexp-match? #rx"(?m:^```)" p)
+     [(and (not output?) (regexp-try-match #rx"^Output:\n(?m:```.*)" p))
+      (loop texts kinds offsets #t)]
+     [(or output? (regexp-try-match #rx"^(?m:```.*)" p))
       (define pos (file-char-position p))
       (define o (open-output-string))
-      (regexp-match #rx"(?m:^```)" p 0 #f o)
+      (regexp-match #rx"(?m:^```.*)" p 0 #f o)
       (loop (cons (get-output-string o) texts)
-            (cons (+ pos start-pos) offsets))]
+            (cons (+ pos start-pos) offsets)
+            (cons (if output? 'output 'code) kinds)
+            #f)]
+     [(eof-object? (read-line p))
+      (values (reverse texts) (reverse offsets) (reverse kinds))]
      [else
-      (values (reverse texts) (reverse offsets))])))
+      (loop texts offsets kinds #f)])))
 
 ;; apply `insert`s to the message editor
 (define (apply-changes-to-editor! editor insertss offsets)
@@ -80,7 +90,9 @@
         (send editor delete start-pos (+ offset (insert-end insert)))
         (define start-at-caret? (= start-pos (send editor get-start-position)))
         (define end-at-caret? (= start-pos (send editor get-end-position)))
-        (copy-editor editor (insert-editor insert) start-pos)
+        (if (string? (insert-editor insert))
+            (send editor insert (insert-editor insert) start-pos)
+            (copy-editor editor (insert-editor insert) start-pos))
         (when (or start-at-caret? end-at-caret?)
           (send editor set-position
                 (if start-at-caret?
@@ -110,54 +122,88 @@
   (send editor insert "\n" 0))
 
 ;; apply `insert`s to the extracted text, for the no-op shortcut
-(define (apply-changes-to-text texts insertss)
-  (for/list ([text (in-list texts)]
-             [inserts (in-list insertss)])
-    (for/fold ([text text]) ([insert (in-list (reverse inserts))])
-      (string-append (substring text 0 (min (string-length text) (insert-start insert)))
-                     (send (insert-editor insert) get-flattened-text)
-                     (substring text (min (string-length text) (insert-end insert)))))))
+(define (apply-changes-to-text texts kinds insertss)
+  (let loop ([texts texts] [kinds kinds] [insertss insertss] [new-texts null] [new-kinds null])
+    (cond
+     [(null? texts)
+      (values (reverse new-texts) (reverse new-kinds))]
+     [else
+      (define text (car texts))
+      (define inserts (car insertss))
+      (cond
+       [(and (pair? inserts)
+             (insert-new? (car inserts)))
+        (unless (= (length inserts) 2) (error "expected 2 parts"))
+        (loop (cdr texts)
+              (cdr kinds)
+              (cdr insertss)
+              (cons (send (insert-editor (cadr inserts)) get-flattened-text)
+                    (cons (car texts)
+                          new-texts))
+              (cons 'output (cons 'code new-kinds)))]
+       [else
+        (define new-text
+          (for/fold ([text text]) ([insert (in-list (reverse inserts))])
+            (string-append (substring text 0 (min (string-length text) (insert-start insert)))
+                           (if (string? (insert-editor insert))
+                               (insert-editor insert)
+                               (send (insert-editor insert) get-flattened-text))
+                           (substring text (min (string-length text) (insert-end insert))))))
+        (loop (cdr texts)
+              (cdr kinds)
+              (cdr insertss)
+              (cons new-text new-texts)
+              (cons (car kinds) new-kinds))])])))
 
 ;; evaluate ``` blocks; when we find a module, then
 ;; create a new evaluator
-(define (run-code texts show-error)
+(define (run-code texts kinds show-error)
   (define cust (make-custodian))
-  (let loop ([texts texts] [e #f])
+  (let loop ([texts texts] [kinds kinds] [e #f])
     (cond
      [(null? texts) null]
+     [(eq? 'output (car kinds))
+      ;; Not preceded by a module block, so empty it
+      (define text (car texts))
+      (define inserts
+        (if (equal? text "\n")
+            null
+            (list (insert 0 (string-length text) "\n" #f))))
+      (cons inserts (loop (cdr texts) (cdr kinds) e))]
      [else
       (define text (car texts))
-      (define-values (new-e repl)
+      (define-values (new-e repl output)
         (cond
          [(regexp-match? #px"\\s*#lang" text)
           ;; make a new evaluator; nothing to eval afterward
           (when e (kill-evaluator e))
-          (define-values (evals stderr)
+          (define-values (evals output)
             (do-eval #f (lambda ()
                           (call-with-sandbox-config
                            (lambda ()
                              (install-printer (make-module-evaluator text)))))))
-          (show-error stderr)
           (values (and (not (void? evals))
                        (car evals))
-                  #f)]
+                  #f
+                  output)]
          [(not e)
           ;; create a default evaluator
           (values
            (call-with-sandbox-config
             (lambda ()
               (install-printer (make-evaluator 'racket))))
-           text)]
+           text
+           #f)]
          [else
           ;; continue using the evaluator
-          (values e text)]))
+          (values e text #f)]))
       ;; When we have a REPL-style ``` block, look for prompts
       ;; and evaluate expressions after them:
-      (define inserts
-        (cond
-         [repl
-          (define i (open-input-string text))
-          (port-count-lines! i)
+      (cond
+       [repl
+        (define i (open-input-string text))
+        (port-count-lines! i)
+        (define inserts
           (let loop ()
             (define m (regexp-match #px"^\\s*>(\\s*)" i))
             (cond
@@ -193,15 +239,42 @@
                                 (if m
                                     (- end-pos (sub1 (string-length (bytes->string/utf-8 (car m)))))
                                     end-pos)
-                                out)
+                                out
+                                #f)
                         (loop))])])]
              [m
               ;; Found an empty prompt; skip it
               (loop)]
-             [else null]))]
+             [else
+              ;; No more prompts
+              null])))
+        (cons inserts (loop (cdr texts) (cdr kinds) new-e))]
+       [(and output
+             (positive? (send output last-position)))
+        (indent-output output 0)
+        (cond
+         [(and (pair? (cdr kinds))
+               (eq? 'output (cadr kinds)))
+          ;; No changes to module, but update output block:
+          (cons null
+                (cons (list
+                       (insert 0 (string-length (cadr texts)) output #f))
+                      (loop (cddr texts)
+                            (cddr kinds)
+                            new-e)))]
          [else
-          null]))
-      (cons inserts (loop (cdr texts) new-e))])))
+          ;; Insert output block:
+          (define end (string-length (car texts)))
+          (define prefix (if (and (positive? end)
+                                  (equal? #\newline (string-ref (car texts) (sub1 end))))
+                             ""
+                             "\n"))
+          (cons (list
+                 (insert end end (string-append prefix "```\nOutput:\n```") #t)
+                 (insert end end output #t))
+                (loop (cdr texts) (cdr kinds) new-e))])]
+       [else
+        (cons null (loop (cdr texts) (cdr kinds) new-e))])])))
 
 ;; ----------------------------------------
 ;; Evaluation helpers
@@ -209,8 +282,7 @@
 (define (call-with-sandbox-config thunk)
   (call-with-trusted-sandbox-configuration
    (lambda ()
-     (parameterize ([sandbox-output 'string]
-                    [sandbox-error-output current-output-port]
+     (parameterize ([sandbox-error-output current-output-port]
                     [sandbox-propagate-breaks #f])
        (thunk)))))
 
@@ -226,11 +298,12 @@
        (call-in-sandbox-context e (lambda ()
                                     (current-output-port o)
                                     (current-error-port o))))
-     (define vs (call-with-values thunk list))
+     (define vs
+       (parameterize ([sandbox-output o])
+         (call-with-values thunk list)))
      (when e
        (call-in-sandbox-context e (lambda ()
-                                    (map (current-print) vs)))
-       (display (get-output e) o))
+                                    (map (current-print) vs))))
      vs)
    editor))
 
