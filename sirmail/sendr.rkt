@@ -667,6 +667,10 @@
           (add-text-keymap-functions km)
           (keymap:setup-global km)
           
+          (send km add-function "unquote-message-selection"
+                (lambda (e ev) (unquote-message-selection e)))
+          (send km map-function ":c:x;q" "unquote-message-selection")
+
           (send km add-function "send-message"
                 (lambda (w e) (send-msg)))
           (send km map-function ":m:return" "send-message")
@@ -978,7 +982,32 @@
 	      (lambda () 
 		(send edit end-edit-sequence)
 		(send edit set-wordbreak-map wbm)))
-	  #t)))
+	  #t))
+
+      ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+      ;;  Stripping message quoting                             ;;
+      ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+      (define (unquote-message-selection e)
+        (define start (send e get-start-position))
+        (define end (send e get-end-position))
+        (send e begin-edit-sequence)
+        (let loop ([start start] [end end])
+          (when (< start end)
+            (define p (send e find-string ">" 'forward start end))
+            (when p
+              (define str (send e get-text
+                                (max 0 (sub1 p))
+                                (min (send e last-position) (+ p 2))
+                                #t))
+              (if (or (string=? "\n> " str)
+                      (string=? "\n>>" str))
+                  (let ()
+                    (define amt (if (string=? "\n> " str) 2 1))
+                    (send e delete p (+ amt p))
+                    (loop (add1 p) (- end amt)))
+                  (loop (add1 p) end)))))
+        (send e end-edit-sequence)))
 
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;  Uptime                                                ;;
