@@ -1958,6 +1958,9 @@
             (update-status-text)))
         (semaphore-post status-sema))
       
+      (define vsz #f)
+      (define rss #f)
+
       ;; update-status-text : -> void
       ;; =any thread=
       (define (update-status-text)
@@ -1986,8 +1989,6 @@
            (unless done?
              (loop)))))
       
-      (define vsz #f)
-      (define rss #f)
       (define (start-vsz/rss-thread)
         (thread
          (lambda ()
@@ -2428,9 +2429,11 @@
       (set! got-started? #t)
       
       (unless (null? mailbox)
-	(let ([last (car (last-pair (send header-list get-items)))])
-	  (send last select #t)
-	  (queue-callback (lambda () (send last scroll-to)))))
+	(let ([init (if (eq? (get-pref 'sirmail:mailbox-init-message) 'last)
+                        (car (last-pair (send header-list get-items)))
+                        (car (send header-list get-items)))])
+	  (send init select #t)
+	  (queue-callback (lambda () (send init scroll-to)))))
 
       (frame:reorder-menus main-frame)
       

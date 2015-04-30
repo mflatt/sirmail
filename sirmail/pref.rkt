@@ -105,6 +105,10 @@
                            (λ (x) (or (not x) (string? x))))
   (preferences:set-default 'sirmail:x-mailer-header #t boolean?)
   (preferences:set-default 'sirmail:message-columns 80 exact-positive-integer?)
+  (preferences:set-default 'sirmail:mailbox-init-message 'last
+                           (lambda (x) (or (eq? x 'first) (eq? x 'last))))
+  (preferences:set-default 'sirmail:folder-window-can-refresh? #t boolean?)
+  (preferences:set-default 'sirmail:send-by-discarding? #f boolean?) ; useful only for tests or demos
 
   (let ([fw 560]
 	[fh 600])

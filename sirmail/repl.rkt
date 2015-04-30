@@ -161,7 +161,9 @@
   (define cust (make-custodian))
   (let loop ([texts texts] [kinds kinds] [e #f])
     (cond
-     [(null? texts) null]
+     [(null? texts)
+      (when e (pump-evaluator e))
+      null]
      [(eq? 'output (car kinds))
       ;; Not preceded by a module block, so empty it
       (define text (car texts))
@@ -356,3 +358,22 @@
    [(box? result)
     (raise (unbox result))]
    [else (apply values result)]))
+
+;; ----------------------------------------
+;; Allowing evaluator GUI events and cleaning up evaluators
+
+(define (pump-evaluator e)
+  ;; Not a pretty way to manage a sandbox, but good enough for
+  ;; our purposes:
+  (thread (lambda ()
+            (let loop ()
+              (when (null? (get-top-level-windows))
+                (kill-evaluator e))
+              (when (evaluator-alive? e)
+                (sync
+                 (thread
+                  (lambda ()
+                    (call-in-sandbox-context
+                     e
+                     (lambda () (sleep/yield 0.5))))))
+                (loop))))))

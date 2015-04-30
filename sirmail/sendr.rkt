@@ -456,18 +456,18 @@
         (define (send-msg)
           (define-values (smtp-ssl? smtp-auth-user smtp-server-to-use smtp-port-to-use)
             (parse-server-name+user+type (SMTP-SERVER) 25))
-	  (define smtp-auth-passwd (and smtp-auth-user
-					(or (hash-ref smtp-passwords (cons smtp-auth-user smtp-server-to-use)
+          (define smtp-auth-passwd (and smtp-auth-user
+                                        (or (hash-ref smtp-passwords (cons smtp-auth-user smtp-server-to-use)
                                                       (lambda () #f))
-					    (let ([p (get-pw-from-user smtp-auth-user mailer-frame)])
-					      (unless p (raise-user-error 'send "send canceled"))
-					      p))))
+                                            (let ([p (get-pw-from-user smtp-auth-user mailer-frame)])
+                                              (unless p (raise-user-error 'send "send canceled"))
+                                              p))))
           (send-message
            (send message-editor get-text)
-	   smtp-ssl?
+           smtp-ssl?
            smtp-server-to-use
            smtp-port-to-use
-	   smtp-auth-user smtp-auth-passwd
+           smtp-auth-user smtp-auth-passwd
            (map (lambda (i) (send i user-data)) 
                 (send enclosure-list get-items))
            enable
@@ -486,8 +486,8 @@
                        (send message-editor save-file f 'text)
                        (loop))))))
            message-count)
-	  (when smtp-auth-passwd
-	    (hash-set! smtp-passwords (cons smtp-auth-user smtp-server-to-use) 
+          (when smtp-auth-passwd
+            (hash-set! smtp-passwords (cons smtp-auth-user smtp-server-to-use) 
                        smtp-auth-passwd)))
         
         ;; enq-msg : -> void
@@ -847,15 +847,16 @@
 						body-lines))))))))
                            (break-ok)
                            (smtp-sending-end-of-message break-bad)
-                           (smtp-send-message smtp-server
-                                              simple-from
-                                              tos
-                                              new-header
-                                              body-lines
-                                              #:port-no smtp-port
-					      #:tcp-connect (if ssl? ssl-connect tcp-connect)
-					      #:auth-user auth-user
-					      #:auth-passwd auth-pw))))
+                           (unless (get-pref 'sirmail:send-by-discarding?)
+                             (smtp-send-message smtp-server
+                                                simple-from
+                                                tos
+                                                new-header
+                                                body-lines
+                                                #:port-no smtp-port
+                                                #:tcp-connect (if ssl? ssl-connect tcp-connect)
+                                                #:auth-user auth-user
+                                                #:auth-passwd auth-pw)))))
                        save-before-killing))
                   (status-done))
                 (message-box

@@ -384,11 +384,12 @@
       
       
       (define refresh-mailbox-button
-        (instantiate button% ()
-          (label "Update Folder List")
-          (parent top-panel)
-          (callback (lambda (x y)
-                      (refresh-mailboxes)))))
+        (and (get-pref 'sirmail:folder-window-can-refresh?)
+             (instantiate button% ()
+               (label "Update Folder List")
+               (parent top-panel)
+               (callback (lambda (x y)
+                           (refresh-mailboxes))))))
       
       (define stop-thread #f)
       (define stop-button
@@ -409,7 +410,8 @@
              (send frame set-status-text what)
              (send (send frame get-menu-bar) enable #f)
              (send top-list enable #f)
-             (send refresh-mailbox-button enable #f)
+             (when refresh-mailbox-button
+               (send refresh-mailbox-button enable #f))
              (send stop-button enable #t))
            (lambda ()
              (parameterize ([current-custodian c])
@@ -423,7 +425,8 @@
              (custodian-shutdown-all c)
              (send (send frame get-menu-bar) enable #t)
              (send top-list enable #t)
-             (send refresh-mailbox-button enable #t)
+             (when refresh-mailbox-button
+               (send refresh-mailbox-button enable #t))
              (send stop-button enable #f)))
           (if (exn? result)
               (raise result)
@@ -455,7 +458,7 @@
       (frame:reorder-menus frame)
       
       (send frame show #t)
-      (send frame min-width 350)
+      ; (send frame min-width 350)
       (send frame min-height 450)
       (send frame create-status-line)
       (send top-list set-mailbox-name (ROOT-MAILBOX-FOR-LIST))
