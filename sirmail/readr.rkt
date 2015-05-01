@@ -31,12 +31,15 @@
            browser/htmltext
            mrlib/hierlist/hierlist-sig
            net/sendurl
-           openssl/mzssl)
+           openssl/mzssl
+           file/md5)
 
   (require (only-in racket/base log-error))
 
   ;; Constant for messages without a title:
   (define no-subject-string "<No subject>")
+  
+  (define AVATAR-SIZE 64)
 
   (provide read@)
   (define-unit read@
@@ -901,11 +904,29 @@
             (send e change-style marked-delta before (+ before 1)))
           (send e end-edit-sequence)
           i))
+      
+      (define (avatar-text-mixin %)
+        (class %
+          (inherit invalidate-bitmap-cache
+                   get-admin)
+          (define avatar-bm #f)
+          (super-new)          
+          (define/public (set-avatar bm)
+            (set! avatar-bm bm)
+            (invalidate-bitmap-cache 0 0 'display-end AVATAR-SIZE))
+          (define/override (on-paint before? dc left top right bottom dx dy draw-caret)
+            (super on-paint before? dc left top right bottom dx dy draw-caret)
+            (when avatar-bm
+              (unless (or before? (dy . <= . (- AVATAR-SIZE)))
+                (define w-box (box 0))
+                (send (get-admin) get-view #f #f w-box #f)
+                (send dc draw-bitmap avatar-bm (+ dx (- (unbox w-box) AVATAR-SIZE)) dy))))))
 
       (define display-text%
-        (html-text-mixin
-         (text:foreground-color-mixin
-          text:standard-style-list%)))
+        (avatar-text-mixin
+         (html-text-mixin
+          (text:foreground-color-mixin
+           text:standard-style-list%))))
       
       ;; Class for the panel that has columns titles and
       ;; supports clicks to change the sort order
@@ -986,7 +1007,7 @@
       (define mime-mode? #t)
       (define no-mime-inline? #f)
       (define html-mode? #t)
-      (define img-mode? #f)
+      (define img-mode? (get-pref 'sirmail:show-html-images?))
       (define prefer-text? (get-pref 'sirmail:prefer-text))
       
       (define global-keymap (make-object keymap%))
@@ -1468,6 +1489,7 @@
                  (send e begin-edit-sequence))
                (lambda ()
                  (send e erase)
+                 (send e set-avatar #f)
                  (set-current-selected #f)
                  (let* ([h (get-header uid)]
 			[small-h (get-viewable-headers h)])
@@ -1490,12 +1512,43 @@
 				       (delta e start end))))])
 		     (when push?
 		       (push-selected uid))
-		     (parse-and-insert-body h body e insert 78 img-mode?)))
+		     (parse-and-insert-body h body e insert 78 img-mode?))
+                   (send e set-avatar (get-avatar (extract-field "From" h))))
                  (send e set-position 0)
                  (set-current-selected i))
                (lambda ()
                  (send e end-edit-sequence)
                  (send e lock #t)))))
+          
+          (define (get-avatar who)
+            (define addrs (and who
+                               (extract-addresses (parse-encoded who) 'address)))
+            (define addr (and (list? addrs)
+                              (= 1 (length addrs))
+                              (string-foldcase (car addrs))))
+            (define f (and addr
+                           (build-path (LOCAL-DIR) "email-avatars" (bytes->string/utf-8 (md5 addr)))))
+            (and f
+                 (file-exists? f)
+                 (with-handlers ([exn:fail? (lambda (exn)
+                                              (log-error (exn-message exn))
+                                              #f)])
+                   (define bm (read-bitmap f))
+                   (cond
+                    [(and (= (send bm get-width) AVATAR-SIZE)
+                          (= (send bm get-height) AVATAR-SIZE))
+                     bm]
+                    [else
+                     (define bm2 (make-screen-bitmap AVATAR-SIZE AVATAR-SIZE))
+                     (define dc (send bm2 make-dc))
+                     (define s (max (/ AVATAR-SIZE (send bm get-width))
+                                    (/ AVATAR-SIZE (send bm get-height))))
+                     (send dc set-smoothing 'smoothed)
+                     (send dc set-scale s s)
+                     (send dc draw-bitmap bm
+                           (* 1/2 (- (* s (send bm get-width)) AVATAR-SIZE))
+                           (* 1/2 (- (* s (send bm get-height)) AVATAR-SIZE)))
+                     bm2]))))
 
           ;; -------------------- Message drag'n'drop --------------------
           
@@ -1960,34 +2013,39 @@
       
       (define vsz #f)
       (define rss #f)
+      (define show-memory-use? (get-pref 'sirmail:show-memory-use?))
 
       ;; update-status-text : -> void
       ;; =any thread=
       (define (update-status-text)
         (let ([mem-str
-               (if (and vsz rss)
-                   (format "(mz: ~a vsz: ~a rss: ~a vocab: ~a)"
-                           (format-number (quotient (current-memory-use) 1024)) 
-                           vsz 
-                           rss
-                           (word-count))
-                   (format "(mz: ~a vocab: ~a)"
-                           (format-number (quotient (current-memory-use) 1024))
-                           (word-count)))])
+               (if (not show-memory-use?)
+                   ""
+                   (if (and vsz rss)
+                       (format "(mz: ~a vsz: ~a rss: ~a vocab: ~a)"
+                               (format-number (quotient (current-memory-use) 1024)) 
+                               vsz 
+                               rss
+                               (word-count))
+                       (format "(mz: ~a vocab: ~a)"
+                               (format-number (quotient (current-memory-use) 1024))
+                               (word-count))))])
 	  (send main-frame set-status-text 
 		(if (equal? last-status "")
 		    mem-str
 		    (string-append last-status " " mem-str)))))
-      (thread
-       (lambda ()
-         (let loop ()
-	   (semaphore-wait status-sema)
-           (when (object? main-frame)
-             (update-status-text))
-           (semaphore-post status-sema)
-	   (sleep 5)
-           (unless done?
-             (loop)))))
+
+      (when show-memory-use?
+        (thread
+         (lambda ()
+           (let loop ()
+             (semaphore-wait status-sema)
+             (when (object? main-frame)
+               (update-status-text))
+             (semaphore-post status-sema)
+             (sleep 5)
+             (unless done?
+               (loop))))))
       
       (define (start-vsz/rss-thread)
         (thread
