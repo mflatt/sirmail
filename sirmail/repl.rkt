@@ -1,7 +1,10 @@
 #lang racket/base
 (require racket/gui/base
          racket/class
-         racket/sandbox)
+         racket/sandbox
+         syntax/modread
+         pict
+         pict/snip)
 
 (provide execute-message-repls)
 
@@ -60,20 +63,36 @@
      [else
       s])]))
  
-;; get all sequences between ```s
+;; get all sequences between ```s, and return a list of text
+;; and a parallel list of kinds, where a kind is '#:code, '#:keyword,
+;; or a module path (which implies '#:code)
 (define (extract-code-blocks p start-pos)
   (let loop ([texts null] [kinds null] [offsets null] [output? #f])
     (cond
      [(and (not output?) (regexp-try-match #rx"^Output:\n(?m:```.*)" p))
       (loop texts kinds offsets #t)]
      [(or output? (regexp-try-match #rx"^(?m:```.*)" p))
-      (define pos (file-char-position p))
-      (define o (open-output-string))
-      (regexp-match #rx"(?m:^```.*)" p 0 #f o)
-      (loop (cons (get-output-string o) texts)
-            (cons (if output? 'output 'code) kinds)
-            (cons (+ pos start-pos) offsets)
-            #f)]
+      => (lambda (m)
+           ;; extended Markdown fenced-block syntax is
+           ;;   ``` <language> <filename> ....
+           ;; So, recognize `racket` followed by <filename> as a module decl
+           ;; for <filename>, where <filename> is more generally a module path
+           (define module-name
+             (and (pair? m)
+                  (let ([m (regexp-match #rx"^``` *racket ([^ ]+)" (car m))])
+                    (and m (with-handlers ([exn:fail:read? (lambda (exn) #f)])
+                             (read (open-input-bytes (cadr m))))))))
+           (define pos (file-char-position p))
+           (define o (open-output-string))
+           (regexp-match #rx"(?m:^```.*)" p 0 #f o)
+           (loop (cons (get-output-string o) texts)
+                 (cons (or module-name
+                           (if output?
+                               '#:output
+                               '#:code))
+                       kinds)
+                 (cons (+ pos start-pos) offsets)
+                 #f))]
      [(eof-object? (read-line p))
       (values (reverse texts) (reverse kinds) (reverse offsets))]
      [else
@@ -103,6 +122,7 @@
                     (send editor get-end-position))))))
     (send editor end-edit-sequence)))
 
+;; copy editor content to move output to mail message
 (define (copy-editor dest src start-pos)
   (let loop ([start-pos start-pos]
              [snip (send src find-first-snip)])
@@ -111,6 +131,7 @@
       (loop (+ start-pos (send snip get-count))
             (send snip next)))))
 
+;; indent error messages, etc., to match the prompt location
 (define (indent-output editor indent)
   (unless (zero? indent)
     (let loop ([para 0] [pos -1])
@@ -121,7 +142,9 @@
         (loop (add1 para) new-pos))))
   (send editor insert "\n" 0))
 
-;; apply `insert`s to the extracted text, for the no-op shortcut
+;; apply `insert`s to the extracted text, in support of the no-op shortcut;
+;;  output blocks needs to be matched up with existing output blocks, with
+;;  new output blocks generated as needed
 (define (apply-changes-to-text texts kinds insertss)
   (let loop ([texts texts] [kinds kinds] [insertss insertss] [new-texts null] [new-kinds null])
     (cond
@@ -140,7 +163,7 @@
               (cons (send (insert-editor (cadr inserts)) get-flattened-text)
                     (cons (car texts)
                           new-texts))
-              (cons 'output (cons 'code new-kinds)))]
+              (cons '#:output (cons '#:code new-kinds)))]
        [else
         (define new-text
           (for/fold ([text text]) ([insert (in-list (reverse inserts))])
@@ -155,16 +178,19 @@
               (cons new-text new-texts)
               (cons (car kinds) new-kinds))])])))
 
-;; evaluate ``` blocks; when we find a module, then
-;; create a new evaluator
+;; evaluate ``` blocks; create a new evaluator whenever we have a module
+;; block with no name for the module (in which case we call the module
+;; `program'), while REPL-style blocks continue with the namespace of
+;; the preceding module (or `racket` if no preceding)
 (define (run-code texts kinds show-error)
   (define cust (make-custodian))
+  (define declared-modules (make-hash))
   (let loop ([texts texts] [kinds kinds] [e #f])
     (cond
      [(null? texts)
       (when e (pump-evaluator e))
       null]
-     [(eq? 'output (car kinds))
+     [(eq? '#:output (car kinds))
       ;; Not preceded by a module block, so empty it
       (define text (car texts))
       (define inserts
@@ -174,26 +200,62 @@
       (cons inserts (loop (cdr texts) (cdr kinds) e))]
      [else
       (define text (car texts))
+      (define kind (car kinds))
       (define-values (new-e repl output)
         (cond
-         [(regexp-match? #px"\\s*#lang" text)
-          ;; make a new evaluator; nothing to eval afterward
-          (when e (kill-evaluator e))
-          (define-values (evals output)
-            (do-eval #f (lambda ()
-                          (call-with-sandbox-config
-                           (lambda ()
-                             (install-printer (make-module-evaluator text)))))))
-          (values (and (not (void? evals))
-                       (car evals))
+         [(or (not (keyword? kind))
+              (regexp-match? #px"\\s*#lang" text))
+          ;; possibly make a new evaluator; no repl content to eval
+          (define new-e
+            (cond
+             [(or (not e) (keyword? kind))
+              (when e (kill-evaluator e))
+              (define-values (evals pre-output)
+                (do-eval #f (lambda ()
+                              (make-mail-evaluator declared-modules 'racket/base))))
+              (and (not (void? evals))
+                   (car evals))]
+             [else e]))
+          (define module-name
+            (cond
+             [(keyword? kind) 'program]
+             [(symbol? kind)
+              (hash-set! declared-modules kind kind)
+              kind]
+             [else (path->complete-path kind)]))
+          (define quoted-module-name
+            (cond
+             [(symbol? module-name) `',module-name]
+             [else module-name]))
+          (define-values (ignored output)
+            (if new-e
+                (do-eval
+                 new-e
+                 (lambda ()
+                   (call-in-sandbox-context
+                    new-e
+                    (lambda ()
+                      (define p (open-input-string text))
+                      (port-count-lines! p)
+                      (define form
+                        (with-module-reading-parameterization
+                            (lambda () (read-syntax 'program p))))
+                      (check-module-form form 'module #f)
+                      (unless (eof-object? (read p))
+                        (error "found extra after module"))
+                      (parameterize ([current-module-declare-name
+                                      (make-resolved-module-path module-name)])
+                        (eval form))
+                      (namespace-require quoted-module-name)
+                      (current-namespace (module->namespace quoted-module-name))))))
+                (values #f #f)))
+          (values new-e
                   #f
                   output)]
          [(not e)
           ;; create a default evaluator
           (values
-           (call-with-sandbox-config
-            (lambda ()
-              (install-printer (make-evaluator 'racket))))
+           (make-mail-evaluator declared-modules 'racket)
            text
            #f)]
          [else
@@ -256,7 +318,7 @@
         (indent-output output 0)
         (cond
          [(and (pair? (cdr kinds))
-               (eq? 'output (cadr kinds)))
+               (eq? '#:output (cadr kinds)))
           ;; No changes to module, but update output block:
           (cons null
                 (cons (list
@@ -281,11 +343,21 @@
 ;; ----------------------------------------
 ;; Evaluation helpers
 
+(define (make-mail-evaluator declared-modules lang)
+  (call-with-sandbox-config
+   (lambda ()
+     (define e (make-evaluator lang))
+     (install-printer e)
+     (install-module-name-resolver declared-modules e)
+     e)))
+
 (define (call-with-sandbox-config thunk)
   (call-with-trusted-sandbox-configuration
    (lambda ()
      (parameterize ([sandbox-error-output current-output-port]
-                    [sandbox-propagate-breaks #f])
+                    [sandbox-propagate-breaks #f]
+                    [sandbox-namespace-specs (append (sandbox-namespace-specs)
+                                                     (list 'pict))])
        (thunk)))))
 
 (define (do-eval e thunk)
@@ -317,19 +389,47 @@
 ;; Pretty printing
 
 (define (install-printer e)
-  (call-in-sandbox-context e (lambda ()
-                               (current-print
-                                (dynamic-require 'racket/pretty 'pretty-print-handler))
-                               ((dynamic-require 'racket/pretty 'pretty-print-size-hook)
-                                (lambda (v display? p)
-                                  (if (and (port-writes-special? p)
-                                           (v . is-a? . snip%))
-                                      1
-                                      #f)))
-                               ((dynamic-require 'racket/pretty 'pretty-print-print-hook)
-                                (lambda (v display? p)
-                                  (write-special v p)))))
-  e)
+  (call-in-sandbox-context
+   e
+   (lambda ()
+     (current-print
+      (dynamic-require 'racket/pretty 'pretty-print-handler))
+     ((dynamic-require 'racket/pretty 'pretty-print-size-hook)
+      (lambda (v display? p)
+        (if (and (port-writes-special? p)
+                 (or (v . is-a? . snip%)
+                     (pict? v)))
+            1
+            #f)))
+     ((dynamic-require 'racket/pretty 'pretty-print-print-hook)
+      (lambda (v display? p)
+        (define new-v
+          (cond
+           [(pict? v) (new pict-snip% [pict v])]
+           [else v]))
+        (write-special new-v p))))))
+
+;; ----------------------------------------
+;; Finding declared modules
+
+(define (install-module-name-resolver declared-modules e)
+  (call-in-sandbox-context
+   e
+   (lambda ()
+     (current-module-name-resolver
+      (let ([r (current-module-name-resolver)])
+        (case-lambda
+          [(m ns) (r m ns)]
+          [(mp wrt stx load?)
+           (cond
+            [(hash-ref declared-modules mp #f)
+             (make-resolved-module-path mp)]
+            [(and (pair? mp)
+                  (eq? 'submod (car mp))
+                  (hash-ref declared-modules (cadr mp) #f))
+             (make-resolved-module-path (cdr mp))]
+            [else
+             (r mp wrt stx load?)])]))))))
 
 ;; ----------------------------------------
 ;; Breakabale
