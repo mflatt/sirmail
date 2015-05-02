@@ -204,7 +204,7 @@
       (define-values (new-e repl output)
         (cond
          [(or (not (keyword? kind))
-              (regexp-match? #px"\\s*#lang" text))
+              (regexp-match? #px"^\\s*#lang" text))
           ;; possibly make a new evaluator; no repl content to eval
           (define new-e
             (cond
