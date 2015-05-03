@@ -10,4 +10,6 @@
                "parser-tools-lib"
                "scheme-lib"
                "syntax-color-lib"
-               "sandbox-lib"))
+               "sandbox-lib"
+               "pict-lib"
+               "pict-snip-lib"))
