@@ -240,14 +240,15 @@
                       (define form
                         (with-module-reading-parameterization
                             (lambda () (read-syntax 'program p))))
-                      (check-module-form form 'module #f)
-                      (unless (eof-object? (read p))
-                        (error "found extra after module"))
-                      (parameterize ([current-module-declare-name
-                                      (make-resolved-module-path module-name)])
-                        (eval form))
-                      (namespace-require quoted-module-name)
-                      (current-namespace (module->namespace quoted-module-name))))))
+                      (unless (eof-object? form)
+                        (check-module-form form 'module #f)
+                        (unless (eof-object? (read p))
+                          (error "found extra after module"))
+                        (parameterize ([current-module-declare-name
+                                        (make-resolved-module-path module-name)])
+                          (eval form))
+                        (namespace-require quoted-module-name)
+                        (current-namespace (module->namespace quoted-module-name)))))))
                 (values #f #f)))
           (values new-e
                   #f
@@ -356,6 +357,7 @@
    (lambda ()
      (parameterize ([sandbox-error-output current-output-port]
                     [sandbox-propagate-breaks #f]
+                    [sandbox-make-code-inspector make-inspector]
                     [sandbox-namespace-specs (append (sandbox-namespace-specs)
                                                      (list 'pict))])
        (thunk)))))
