@@ -330,7 +330,7 @@
 
   (define (is-host-address+port+user+type? s)
     (or (is-host-address+port+user? s)
-	(let ([m (regexp-match "^(?:ssl|tcp):(.*)$" s)])
+	(let ([m (regexp-match "^(?:ssl|tls|tcp):(.*)$" s)])
 	  (and m
 	       (is-host-address+port+user? (cadr m))))))
 

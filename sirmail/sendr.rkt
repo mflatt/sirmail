@@ -454,7 +454,7 @@
             w))
         
         (define (send-msg)
-          (define-values (smtp-ssl? smtp-auth-user smtp-server-to-use smtp-port-to-use)
+          (define-values (smtp-ssl? smtp-tls? smtp-auth-user smtp-server-to-use smtp-port-to-use)
             (parse-server-name+user+type (SMTP-SERVER) 25))
           (define smtp-auth-passwd (and smtp-auth-user
                                         (or (hash-ref smtp-passwords (cons smtp-auth-user smtp-server-to-use)
@@ -465,6 +465,7 @@
           (send-message
            (send message-editor get-text)
            smtp-ssl?
+           smtp-tls?
            smtp-server-to-use
            smtp-port-to-use
            smtp-auth-user smtp-auth-passwd
@@ -770,6 +771,7 @@
 
       (define (send-message message-str
 			    ssl?
+                            tls?
                             smtp-server
                             smtp-port auth-user auth-pw
                             enclosures
@@ -855,6 +857,7 @@
                                                 body-lines
                                                 #:port-no smtp-port
                                                 #:tcp-connect (if ssl? ssl-connect tcp-connect)
+                                                #:tls-encode (and tls? ports->ssl-ports)
                                                 #:auth-user auth-user
                                                 #:auth-passwd auth-pw)))))
                        save-before-killing))
