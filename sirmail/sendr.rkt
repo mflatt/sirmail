@@ -662,11 +662,10 @@
                                 (add1 (send e find-string SEPARATOR
                                             'forward 0 'eof #f)))))
           (send km map-function ":m:q" "reflow-paragraph")
-          (send km map-function ":a:q" "reflow-paragraph")
-          (special-option-key #t)
+          (send km map-function "?:a:q" "reflow-paragraph")
           
           (add-text-keymap-functions km)
-          (keymap:setup-global km)
+          (keymap:setup-global km #:alt-as-meta-keymap km)
           
           (send km add-function "unquote-message-selection"
                 (lambda (e ev) (unquote-message-selection e)))
