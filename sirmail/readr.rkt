@@ -1614,9 +1614,10 @@
           (for/or ([item (in-list items)])
             (define ud (send item user-data))
             (define m (find-message ud))
+            (define (regexp-match?* rx s) (and s (regexp-match? rx s)))
             (and m
-                 (or (regexp-match? rx (message-from m))
-                     (regexp-match? rx (message-subject m)))
+                 (or (regexp-match?* rx (message-from m))
+                     (regexp-match?* rx (message-subject m)))
                  item)))
         (when match-item
           (select match-item)))
