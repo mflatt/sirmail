@@ -2728,7 +2728,7 @@
                                           (send t set-clickback s e
                                                 (lambda (a b c)
                                                   (let ([fn (put-file "Save Attachement As"
-                                                                      main-frame
+                                                                      #f ; main-frame <- avoid the way Mac OS shifts the window
                                                                       #f
                                                                       fn)])
                                                     (when fn
