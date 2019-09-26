@@ -33,7 +33,8 @@
          mrlib/hierlist/hierlist-sig
          net/sendurl
          openssl/mzssl
-         file/md5)
+         file/md5
+         "debug.rkt")
 
 (require (only-in racket/base log-error))
 
@@ -1060,6 +1061,8 @@
           (purge-marked/update-headers)))
   (send global-keymap add-function "gc"
         (lambda (w e) (collect-garbage) (collect-garbage) (dump-memory-stats)))
+  (send global-keymap add-function "debug-threads"
+        (lambda (w e) (dump-all-thread-traces)))
   (send global-keymap add-function "show-memory-graph"
         (lambda (w e) (show-memory-graph)))
   (send global-keymap add-function "start-search-mode"
@@ -1081,6 +1084,7 @@
   (send global-keymap map-function ":b" "scroll-up")
   (send global-keymap map-function "#" "purge")
   (send global-keymap map-function "!" "gc")
+  (send global-keymap map-function "?" "debug-threads")
   (send global-keymap map-function "/" "start-search-mode")
   (send global-keymap map-function ":z" "show-memory-graph")
   (send global-keymap map-function ":m:left" "rewind-msg")

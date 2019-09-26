@@ -11,7 +11,8 @@
 
   (require "sirmails.rkt"
            "pref.rkt"
-           "sirmailr.rkt")
+           "sirmailr.rkt"
+           "debug.rkt")
 
   (require net/imap-sig
            net/smtp-sig
@@ -44,6 +45,8 @@
   ;; eventspace. Each should terminate by calling `exit'.
   ;; We install an exit handler so that we only actually
   ;; exit when the last window is closed.
+  ;; Each eventspace also has its own custodian, but that's
+  ;; just for debugging purposes 
 
   (define prim-exit (exit-handler))
   (define exit-eventspaces null)
@@ -60,24 +63,25 @@
 
   ;; This function is called to start a new window:
   (define (start-new-window thunk)
-    (define evtsp (make-eventspace))
-    (parameterize ([current-eventspace evtsp])
-      (semaphore-wait exit-sema)
-      (set! exit-eventspaces (cons evtsp exit-eventspaces))
-      (semaphore-post exit-sema)
-      (queue-callback
-       (lambda ()
-	 (exit-handler (lambda (x) (exit-sirmail "a")))
-	 (let ([eeh (error-escape-handler)])
-	   (error-escape-handler
-	    (lambda () 
-	      (unless (pair? (get-top-level-windows))
-		;; Didn't start up...
-		(exit-sirmail "b"))
-	      (eeh))))
-	 (thunk)
-	 (yield 'wait)
-	 (exit-sirmail "c")))))
+    (parameterize ([current-custodian (make-debug-custodian)])
+      (define evtsp (make-eventspace))
+      (parameterize ([current-eventspace evtsp])
+        (semaphore-wait exit-sema)
+        (set! exit-eventspaces (cons evtsp exit-eventspaces))
+        (semaphore-post exit-sema)
+        (queue-callback
+         (lambda ()
+           (exit-handler (lambda (x) (exit-sirmail "a")))
+           (let ([eeh (error-escape-handler)])
+             (error-escape-handler
+              (lambda () 
+                (unless (pair? (get-top-level-windows))
+                  ;; Didn't start up...
+                  (exit-sirmail "b"))
+                (eeh))))
+           (thunk)
+           (yield 'wait)
+           (exit-sirmail "c"))))))
 
   ;; Reader windows -----------------------------------------------------------
   
