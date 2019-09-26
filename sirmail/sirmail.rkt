@@ -37,6 +37,8 @@
   (define inbox-name "Inbox")
   (define default-mailbox-options null)
 
+  (autosave:current-toc-path (build-path (find-system-path 'addon-dir) ".sirmail-autos"))
+
   ;; ------------------------------------------------------------
   ;; Every window (reader or sender) is in it's own
   ;; eventspace. Each should terminate by calling `exit'.
