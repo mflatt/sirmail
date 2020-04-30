@@ -34,7 +34,8 @@
          net/sendurl
          openssl/mzssl
          file/md5
-         "debug.rkt")
+         "debug.rkt"
+         "badge.rkt")
 
 (require (only-in racket/base log-error))
 
@@ -83,6 +84,8 @@
                                    '(app)))
         (show-pref-dialog))))
 
+  (error-print-context-length 100)
+  #;
   (uncaught-exception-handler
    (lambda (x)
      (show-error x)
@@ -2025,8 +2028,11 @@
         (send e-msg show #f)
         (values (lambda () 
                   (send m set-message (length mailbox))
-                  (send m show #t))
-                (lambda () (send m show #f))
+                  (send m show #t)
+                  (set-app-badge! #t))
+                (lambda ()
+                  (send m show #f)
+                  (set-app-badge! #f))
                 d
                 e-msg))))
 
