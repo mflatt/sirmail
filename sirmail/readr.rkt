@@ -1236,6 +1236,7 @@
       [define/augment on-close (lambda () 
                                  (logout)
                                  (set! done? #t)
+                                 (remove-badge! this)
                                  (inner (void) on-close))]
       [define/override on-subwindow-char
         (lambda (w e)
@@ -2029,10 +2030,10 @@
         (values (lambda () 
                   (send m set-message (length mailbox))
                   (send m show #t)
-                  (set-app-badge! #t))
+                  (add-badge! main-frame))
                 (lambda ()
                   (send m show #f)
-                  (set-app-badge! #f))
+                  (remove-badge! main-frame))
                 d
                 e-msg))))
 
