@@ -47,7 +47,9 @@
 
      generalize-encoding
      parse-encoded
-     encode-for-header))
+     encode-for-header
+
+     now-as-string))
 
   (provide sirmail:send^)
   (define-signature sirmail:send^

@@ -810,7 +810,14 @@
                          [subject (encode-for-header (extract-field "Subject" header))]
                          [prop-header (remove-fields '("To" "CC" "BCC" "Subject") header)]
                          [std-header (standard-message-header from to cc bcc subject)]
-                         [new-header (append-headers std-header prop-header)]
+                         [new-header (append-headers (append-headers std-header prop-header)
+                                                     (insert-field
+                                                      "Message-ID"
+                                                      (format "<~a.~a@sirmail.~a>"
+                                                              (now-as-string)
+                                                              (format "~x" (random 1024))
+                                                              smtp-server)
+                                                      empty-header))]
                          [tos (map cdr (append to* cc* bcc*))])
 
                     (validate-header new-header)

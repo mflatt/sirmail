@@ -257,6 +257,21 @@
 			    ""
 			    '(password)))
 
+      ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+      (define (now-as-string)
+        (define d (seconds->date (current-seconds)))
+        (define (pad n)
+          (define s (format "~a" n))
+          (if ((string-length s) . < . 2)
+              (string-append "0" s)
+              s))
+        (string-append (format "~a" (date-year d))
+                       (pad (date-month d))
+                       (pad (date-day d))
+                       (pad (date-hour d))
+                       (pad (date-minute d))
+                       (pad (date-second d))))
+
       ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
       ;;  Decoding `from' names                                  ;;
       ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
