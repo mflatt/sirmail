@@ -245,7 +245,7 @@
                   (setup-mailboxes-file mail-box)
                   (open-mailbox (bytes->string/utf-8 mail-box))))
               (super on-double-select i)))
-          (super-instantiate ())))
+          (super-new [style '(no-hscroll no-border)])))
       
       (define (update-gui orig-mbf)
         (define (add-child hl mbf)

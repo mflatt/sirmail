@@ -998,7 +998,7 @@
            (set! tracking-on? #f)
            (reset-sorting-tracking)]))
 
-      (super-new (style '(hide-hscroll hide-vscroll)))
+      (super-new (style '(hide-hscroll hide-vscroll no-border)))
       (set-no-sublists #t)
       (selectable #f)))
   
@@ -1934,7 +1934,7 @@
   (send (send header-list get-editor) set-line-spacing 0)
   (define message (new canvas:color% 
                        [parent sizing-panel]
-                       [style '(auto-hscroll)]))
+                       [style '(auto-hscroll no-border)]))
   (send header-list min-height 20)
   (send header-list stretchable-height #t)
   (send header-list set-no-sublists #t)
@@ -2084,7 +2084,7 @@
              [canvas (instantiate canvas% (button-panel)
                        [stretchable-width #f]
                        [stretchable-height #f]
-                       [style '(border)])]
+                       [style '()])]
              [empty-bm (make-object bitmap% w h)]
              [dc (make-object bitmap-dc% empty-bm)])
         (send canvas min-client-width w)
