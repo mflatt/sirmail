@@ -1935,6 +1935,8 @@
   (define message (new canvas:color% 
                        [parent sizing-panel]
                        [style '(auto-hscroll no-border)]))
+  (send header-list set-scroll-via-copy #t)
+  (send message set-scroll-via-copy #t)
   (send header-list min-height 20)
   (send header-list stretchable-height #t)
   (send header-list set-no-sublists #t)
