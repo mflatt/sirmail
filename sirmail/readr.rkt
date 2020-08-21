@@ -540,8 +540,21 @@
     (imap-store imap '- (map message-position mailbox) (list (symbol->imap-flag 'deleted))))
   
   ;; purge-messages : (listof messages) -> void
-  (define (purge-messages marked bad-break break-ok)
+  (define (purge-messages marked bad-break break-ok trash?)
     (unless (null? marked)
+      (when (and trash?
+                 (or ((length marked) . < . 16)
+                     (eqv? (message-box/custom
+                            "Purge"
+                            (format "Move ~a items to Trash, or just delete?"
+                                    (length marked))
+                            "Trash"
+                            "Delete"
+                            #f
+                            #f
+                            '(disallow-close no-default))
+                           1)))
+        (copy-messages-to marked (TRASH-MAILBOX)))
       (let-values ([(imap count new?) (connect)])
         (with-handlers ([void
                          (lambda (exn)
@@ -603,7 +616,7 @@
   ;; purges the marked mailbox messages.
   (define (purge-marked bad-break break-ok)
     (let* ([marked (filter message-marked? mailbox)])
-      (purge-messages marked bad-break break-ok)))
+      (purge-messages marked bad-break break-ok #t)))
   
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;  GUI: Message List Tools                                ;;
@@ -1475,7 +1488,7 @@
                     (lambda (bad-break break-ok)
                       (with-handlers ([void no-status-handler])
                         (copy-messages-to (list item) archive-mailbox)
-                        (purge-messages (list item) bad-break break-ok)))
+                        (purge-messages (list item) bad-break break-ok #f)))
                     close-frame))))))))
       
       (define/public (hit)
@@ -1706,7 +1719,7 @@
                                (with-handlers ([void no-status-handler])
                                  (void)
                                  (copy-messages-to (list item) mailbox-name)
-                                 (purge-messages (list item) bad-break break-ok)))
+                                 (purge-messages (list item) bad-break break-ok #f)))
                              close-frame)))))
                      (status "")))))]
           [else

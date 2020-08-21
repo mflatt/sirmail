@@ -67,6 +67,7 @@
   (preferences:set-default 'sirmail:root-mailbox-folder #f string-or-false?)
 
   (preferences:set-default 'sirmail:archive-mailbox-folder #f string-or-false?)
+  (preferences:set-default 'sirmail:trash-mailbox-folder "INBOX.Trash" string-or-false?)
   
   (preferences:set-default 'sirmail:initial-sort 'id
 			   (lambda (x) (memq x '(id date subject from))))
@@ -525,6 +526,7 @@
 					       'sirmail:server-certificate
 					       "Verify SSL with certificates"))
         (make-text-field "Archive folder" sp 20 'sirmail:archive-mailbox-folder #t void (lambda (x) x) (lambda (x) x))
+        (make-text-field "Trash folder" sp 20 'sirmail:trash-mailbox-folder #t void (lambda (x) x) (lambda (x) x))
 	(make-text-field "Folder list root" sp 20 'sirmail:root-mailbox-folder #t void (lambda (x) x) (lambda (x) x))
 
 	(send cert enable (preferences:get 'sirmail:use-ssl?)))

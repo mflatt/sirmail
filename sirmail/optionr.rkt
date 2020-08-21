@@ -87,6 +87,7 @@
 
       (define (ROOT-MAILBOX-FOR-LIST) (get-pref 'sirmail:root-mailbox-folder))
       (define (ARCHIVE-MAILBOX) (get-pref 'sirmail:archive-mailbox-folder))
+      (define (TRASH-MAILBOX) (get-pref 'sirmail:trash-mailbox-folder))
 
       (define (USE-EXTERNAL-COMPOSER?) (get-pref 'sirmail:use-extenal-composer?))
 
