@@ -552,7 +552,7 @@
                             "Delete"
                             #f
                             #f
-                            '(disallow-close no-default))
+                            '(default=1))
                            1)))
         (copy-messages-to marked (TRASH-MAILBOX)))
       (let-values ([(imap count new?) (connect)])
