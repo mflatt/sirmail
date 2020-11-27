@@ -85,7 +85,6 @@
         (show-pref-dialog))))
 
   (error-print-context-length 100)
-  #;
   (uncaught-exception-handler
    (lambda (x)
      (show-error x)
