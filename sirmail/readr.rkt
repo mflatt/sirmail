@@ -545,7 +545,7 @@
                  (or ((length marked) . < . 16)
                      (eqv? (message-box/custom
                             "Purge"
-                            (format "Move ~a items to Trash, or just delete?"
+                            (format "Permanently and immediately delete ~a items, or merely move to Trash?"
                                     (length marked))
                             "Trash"
                             "Delete"
