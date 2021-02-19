@@ -185,7 +185,8 @@
 					    "/usr/bin"
 					    "/bin"
 					    "/usr/local/bin"
-					    "/opt/local/bin")))
+					    "/opt/local/bin"
+					    "/opt/homebrew/bin")))
 				 '("ispell" "aspell"))
 			  (find-executable-path (if (eq? (system-type) 'windows)
 						    "aspell.exe"
