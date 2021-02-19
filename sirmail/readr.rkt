@@ -542,7 +542,7 @@
   (define (purge-messages marked bad-break break-ok trash?)
     (unless (null? marked)
       (when (and trash?
-                 (or ((length marked) . < . 16)
+                 (or ((length marked) . < . 32)
                      (eqv? (message-box/custom
                             "Purge"
                             (format "Permanently and immediately delete ~a items, or merely move to Trash?"
