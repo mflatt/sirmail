@@ -835,17 +835,29 @@
                    [fg+mode (and (pair? draw-caret)
                                  (cons (send dc get-text-foreground)
                                        (send dc get-text-mode)))])
+              (define (draw-adjusted-text str x y)
+                (define-values (tw th ta td) (send dc get-text-extent str (send dc get-font) #t))
+                (cond
+                  [(th . > . h)
+                   (define t (send dc get-transformation))
+                   (send dc translate x y)
+                   (define s (/ h th))
+                   (send dc scale s s)
+                   (send dc draw-text str 0 0 #t)
+                   (send dc set-transformation t)]
+                  [else
+                   (send dc draw-text str x y #t)]))
               (when fg+mode
                 (when selected-text-color
                   (send dc set-text-foreground selected-text-color))
                 (send dc set-text-mode 'transparent))
               (set-clip x y (+ FROM-WIDTH (/ first-gap 2) (- line-space)) h)
-              (send dc draw-text from (+ x left-edge-space) y #t)
+              (draw-adjusted-text from (+ x left-edge-space) y)
               (set-clip (+ x FROM-WIDTH (/ first-gap 2) line-space)
                         y 
                         (+ SUBJECT-WIDTH (/ second-gap 2) (- line-space))
                         h)
-              (send dc draw-text subject (+ x FROM-WIDTH (/ first-gap 2) line-space) y #t)
+              (draw-adjusted-text subject (+ x FROM-WIDTH (/ first-gap 2) line-space) y)
               (send dc set-clipping-region old-clip)
               (send dc draw-text
                     uid 
