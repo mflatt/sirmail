@@ -35,7 +35,8 @@
          openssl/mzssl
          file/md5
          "debug.rkt"
-         "badge.rkt")
+         "badge.rkt"
+         "oauth2.rkt")
 
 (require (only-in racket/base log-error))
 
@@ -224,8 +225,9 @@
                    [(mode) (connect 'reuse void void)]
                    [(mode break-bad break-ok)
                     
-                    (define (with-disconnect-handler thunk)
+                    (define (with-disconnect-handler thunk #:on-error [on-error void])
                       (with-handlers ([void (lambda (exn)
+                                              (on-error)
                                               (force-disconnect)
                                               (status "")
                                               (raise exn))])
@@ -255,16 +257,28 @@
                         
                         ;; New connection
                         (begin
-                          (let ([pw (or (get-PASSWORD)
-                                        (let ([p (get-pw-from-user (USERNAME) main-frame)])
-                                          (unless p (raise-user-error 'connect "connection canceled"))
-                                          p))])
+                          (let* ([auth-url (get-pref 'sirmail:oauth2-auth-url)]
+                                 [token-url (get-pref 'sirmail:oauth2-token-url)]
+                                 [pw (or (get-PASSWORD)
+                                         (and auth-url
+                                              token-url
+                                              (begin
+                                                (set! connection-custodian (make-custodian))
+                                                (parameterize ([current-custodian connection-custodian])
+                                                  (with-disconnect-handler
+                                                    (lambda ()
+                                                      (oauth2-get-access-token auth-url token-url
+                                                                               (get-pref 'sirmail:oauth2-client-id)))))))
+                                         (let ([p (get-pw-from-user (USERNAME) main-frame)])
+                                           (unless p (raise-user-error 'connect "connection canceled"))
+                                           p))])
                             (let*-values ([(imap count new) (let-values ([(server port-no)
                                                                           (parse-server-name (IMAP-SERVER)
                                                                                              (if (get-pref 'sirmail:use-ssl?) 993 143))])
                                                               (set! connection-custodian (make-custodian))
                                                               (parameterize ([current-custodian connection-custodian])
                                                                 (with-disconnect-handler
+                                                                  #:on-error (lambda () (set-PASSWORD #f))
                                                                   (lambda ()
                                                                     (if (get-pref 'sirmail:use-ssl?)
                                                                         (let ([c (ssl-make-client-context)])
@@ -273,7 +287,8 @@
                                                                               (ssl-set-verify! c #t)
                                                                               (ssl-load-verify-root-certificates! c cert)))
                                                                           (let-values ([(in out) (ssl-connect server port-no c)])
-                                                                            (imap-connect* in out (USERNAME) pw mailbox-name)))
+                                                                            (imap-connect* in out (USERNAME) pw mailbox-name
+                                                                                           #:xoauth2? (and auth-url token-url))))
                                                                         (parameterize ([imap-port-number port-no])
                                                                           (imap-connect server (USERNAME) pw mailbox-name)))))))])
                               (unless (get-PASSWORD)

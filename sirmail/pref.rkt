@@ -6,7 +6,8 @@
 	   mzlib/list
 	   mzlib/string
 	   mzlib/etc
-	   net/head)
+	   net/head
+           net/url)
 
   ;; IMPORTANT! All preferences operations outside this
   ;; file should go through the following exports.
@@ -21,7 +22,11 @@
   (define (abs-path-or-false? x) 
     (or (not x)
 	(and (path? x) (absolute-path? x))))
-
+  (define (url-string-or-false? x)
+    (or (not x)
+        (and (string? x) 
+             (regexp-match? url-regexp x))))
+  
   (define (un/marshall-path pref)
     (preferences:set-un/marshall pref
 				 (lambda (x) 
@@ -48,6 +53,12 @@
   (preferences:set-default 'sirmail:use-ssl? #f boolean?)
   (preferences:set-default 'sirmail:server-certificate #f abs-path-or-false?)
   (preferences:set-default 'sirmail:smtp-server "sendmail.racket-lang.org" ip-string?)
+  (preferences:set-default 'sirmail:oauth2-auth-url #f url-string-or-false?)
+  (preferences:set-default 'sirmail:oauth2-token-url #f url-string-or-false?)
+  (preferences:set-default 'sirmail:oauth2-client-id #f string-or-false?)
+  (preferences:set-default 'sirmail:oauth2-send-auth-url #f url-string-or-false?)
+  (preferences:set-default 'sirmail:oauth2-send-token-url #f url-string-or-false?)
+  (preferences:set-default 'sirmail:oauth2-send-client-id #f string-or-false?)
 
   (preferences:set-default 'sirmail:local-directory 
 			   (build-path (find-system-path 'home-dir)
@@ -325,7 +336,7 @@
 
   (define (is-host-address+port+user? s)
     (or (is-host-address+port? s)
-	(let ([m (regexp-match "^(?:[-+a-zA-Z0-9_.]+)@(.*)$" s)])
+	(let ([m (regexp-match "^(?:[-+a-zA-Z0-9_.@]+)@([^@]*)$" s)])
 	  (and m
 	       (is-host-address+port? (cadr m))))))
 
@@ -373,6 +384,8 @@
     (check-address is-host-address+port? who tl s #t #f))
   (define (check-host-address/port/user/type/multi who tl s)
     (check-address is-host-address+port+user+type-list? who tl s #t #t))
+  (define (check-url who tl s)
+    (regexp-match? url-regexp s))
 
   ;; check-biff-delay : (union #f string) (union #f parent) string -> boolean
   ;; checks to see if the string in the biff delay field makes
@@ -439,6 +452,7 @@
 	 (car (extract-addresses s 'address))))
 
   (define (check-id who tl s) #t)
+  (define (check-client-id who tl s) #t)
       
   (define (make-text-list label parent pref check-item)
     (let ([p (make-object group-box-panel% label parent)])
@@ -493,6 +507,9 @@
       (make-text-field "Mail From" p 20 'sirmail:mail-from #f check-user-address (lambda (x) x) (lambda (x) x))
       (make-text-field "SMTP Server" p 20 'sirmail:smtp-server #f check-host-address/port/user/type/multi 
 		       (lambda (x) x) (lambda (x) x))
+      (make-text-field "Auth URL" p 20 'sirmail:oauth2-send-auth-url #t check-url (lambda (x) x) (lambda (x) x))
+      (make-text-field "Token URL" p 20 'sirmail:oauth2-send-token-url #t check-url (lambda (x) x) (lambda (x) x))
+      (make-text-field "Client ID" p 20 'sirmail:oauth2-send-client-id #t check-client-id (lambda (x) x) (lambda (x) x))
 
       (make-file/directory-button #t #f p
 				  'sirmail:sent-directory
@@ -520,6 +537,9 @@
 			     [alignment '(left center)])]
 	    [cert #f])
 	(make-text-field "Server" sp 20 'sirmail:imap-server #f check-host-address/port (lambda (x) x) (lambda (x) x))
+	(make-text-field "Auth URL" sp 20 'sirmail:oauth2-auth-url #t check-url (lambda (x) x) (lambda (x) x))
+	(make-text-field "Token URL" sp 20 'sirmail:oauth2-token-url #t check-url (lambda (x) x) (lambda (x) x))
+        (make-text-field "Client ID" sp 20 'sirmail:oauth2-client-id #t check-client-id (lambda (x) x) (lambda (x) x))
 	(make-boolean "Encrypt connection using SSL" sp 'sirmail:use-ssl?
 		      (lambda (on?) (send cert enable on?)))
 	(set! cert (make-file/directory-button #f #f sp

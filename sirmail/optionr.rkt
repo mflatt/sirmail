@@ -35,7 +35,7 @@
                                                   (string=? "tls" (substring s 0 3))
                                                   (substring s 4))
                                           (values #f #f s))])
-	    (let ([m (regexp-match #rx"^(.*)@(.*)$" s)])
+	    (let ([m (regexp-match #rx"^(.*)@([^@]*)$" s)])
 	      (let-values ([(user s) (if m
 					 (values (cadr m) (caddr m))
 					 (values #f s))])

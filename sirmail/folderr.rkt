@@ -1,4 +1,4 @@
-(module folderr mzscheme
+(module folderr racket/base
   (require mzlib/unit
            mzlib/class
            framework
@@ -8,7 +8,8 @@
            mzlib/etc)
   
   (require "sirmails.rkt"
-           "pref.rkt")
+           "pref.rkt"
+           "oauth2.rkt")
   
   (require net/imap-sig)
   
@@ -37,21 +38,31 @@
       (define mailbox-cache-file (build-path (LOCAL-DIR) "folder-window-mailboxes"))
       
       (define (imap-open-connection)
-        (let ([passwd
-               (or (get-PASSWORD)
-                   (let ([p (get-text-from-user "Password" 
-                                                (format "Password for ~a:" (USERNAME))
-                                                frame
-                                                ""
-                                                '(password))])
-                     (unless p (raise-user-error 'connect "connection cancelled"))
-                     p))])
+        (let* ([auth-url (get-pref 'sirmail:oauth2-auth-url)]
+               [token-url (get-pref 'sirmail:oauth2-token-url)]
+               [passwd
+                (or (get-PASSWORD)
+                    (and auth-url
+                         token-url
+                         (with-custodian-killing-stop-button
+                           "Getting access token..."
+                           (lambda ()
+                             (oauth2-get-access-token auth-url token-url
+                                                      (get-pref 'sirmail:oauth2-client-id)))))
+                    (let ([p (get-text-from-user "Password" 
+                                                 (format "Password for ~a:" (USERNAME))
+                                                 frame
+                                                 ""
+                                                 '(password))])
+                      (unless p (raise-user-error 'connect "connection cancelled"))
+                      p))])
           (let-values ([(server port-no)
                         (parse-server-name (IMAP-SERVER) (if (get-pref 'sirmail:use-ssl?) 993 143))])
             (begin0
 	      (if (get-pref 'sirmail:use-ssl?)
 		  (let-values ([(in out) (ssl-connect server port-no)])
-		    (imap-connect* in out (USERNAME) passwd mailbox-name))
+		    (imap-connect* in out (USERNAME) passwd mailbox-name
+                                   #:xoauth2? (and auth-url token-url)))
 		  (parameterize ([imap-port-number port-no])
 		    (imap-connect server (USERNAME) 
 		                  passwd
@@ -125,7 +136,8 @@
           (call-with-output-file mailbox-cache-file
             (lambda (port)
               (write raw-datum port))
-            'truncate 'text)))
+            #:exists 'truncate
+            #:mode 'text)))
       
       ;; read-mailbox-folder : -> mailbox-folder
       (define (read-mailbox-folder)
@@ -137,7 +149,9 @@
                                   null)])
           (if (file-exists? mailbox-cache-file)
               (let/ec k
-                (let ([raw-datum (call-with-input-file mailbox-cache-file read 'text)])
+                (let ([raw-datum (call-with-input-file mailbox-cache-file
+                                                       read
+                                                       #:mode 'text)])
                   (let loop ([rd raw-datum])
                     (cond
                       [(and (= 2 (length rd))
@@ -380,7 +394,7 @@
                               (append mailboxes
                                       (list (list mailbox-name
 						  (path->bytes mailbox-dir))))))
-                  'truncate))))))
+                  #:exists 'truncate))))))
       
       
       (define refresh-mailbox-button

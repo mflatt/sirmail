@@ -16,7 +16,8 @@
   (require "sirmails.rkt"
            "pref.rkt"
            "spell.rkt"
-           "repl.rkt")
+           "repl.rkt"
+           "oauth2.rkt")
 
   (require net/imap-sig
            net/smtp-sig
@@ -389,6 +390,9 @@
                                               (define queued (box #f))
                                               (define execute-state #f)
                                               (define/private (queue-execute)
+                                                (void))
+                                              #;
+                                              (define/private (queue-execute)
                                                 (define q (box #t))
                                                 (set-box! queued #f)
                                                 (set! queued q)
@@ -457,9 +461,26 @@
         (define (send-msg)
           (define-values (smtp-ssl? smtp-tls? smtp-auth-user smtp-server-to-use smtp-port-to-use)
             (parse-server-name+user+type (SMTP-SERVER) 25))
+          (define auth-url (get-pref 'sirmail:oauth2-send-auth-url))
+          (define token-url (get-pref 'sirmail:oauth2-send-token-url))
           (define smtp-auth-passwd (and smtp-auth-user
                                         (or (hash-ref smtp-passwords (cons smtp-auth-user smtp-server-to-use)
                                                       (lambda () #f))
+                                            (and auth-url
+                                                 token-url
+                                                 (let ([c (make-custodian)])
+                                                   (dynamic-wind
+                                                       void
+                                                     (lambda ()
+                                                       (parameterize ([current-custodian c])
+                                                         (as-background
+                                                          enable
+                                                          (lambda (break-bad break-ok)
+                                                            (break-ok)
+                                                            (oauth2-get-access-token auth-url token-url
+                                                                                     (get-pref 'sirmail:oauth2-send-client-id)))
+                                                          void)))
+                                                     (lambda () (custodian-shutdown-all c)))))
                                             (let ([p (get-pw-from-user smtp-auth-user mailer-frame)])
                                               (unless p (raise-user-error 'send "send canceled"))
                                               p))))
@@ -467,6 +488,7 @@
            (send message-editor get-text)
            smtp-ssl?
            smtp-tls?
+           (and auth-url token-url)
            smtp-server-to-use
            smtp-port-to-use
            smtp-auth-user smtp-auth-passwd
@@ -772,6 +794,7 @@
       (define (send-message message-str
 			    ssl?
                             tls?
+                            xoauth?
                             smtp-server
                             smtp-port auth-user auth-pw
                             enclosures
@@ -830,6 +853,7 @@
                            (status-message-starting)
                            (status-message-enclosures))
                        (with-handlers ([void (lambda (x)
+                                               (hash-remove! smtp-passwords (cons auth-user smtp-server))
                                                (status-message-clear)
                                                (raise x))])
                          (break-ok)
@@ -864,9 +888,18 @@
                                                 body-lines
                                                 #:port-no smtp-port
                                                 #:tcp-connect (if ssl? ssl-connect tcp-connect)
-                                                #:tls-encode (and tls? ports->ssl-ports)
+                                                #:tls-encode (and tls?
+                                                                  (lambda (ip op
+                                                                              #:mode mode
+                                                                              #:encrypt tls
+                                                                              #:close-original? close?)
+                                                                    (ports->ssl-ports ip op
+                                                                                      #:mode mode
+                                                                                      #:encrypt 'auto
+                                                                                      #:close-original? close?)))
                                                 #:auth-user auth-user
-                                                #:auth-passwd auth-pw)))))
+                                                #:auth-passwd auth-pw
+                                                #:xoauth2? xoauth?)))))
                        save-before-killing))
                   (status-done))
                 (message-box
