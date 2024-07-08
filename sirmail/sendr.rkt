@@ -510,7 +510,10 @@
                        (send message-editor save-file f 'text)
                        (loop))))))
            message-count)
-          (when smtp-auth-passwd
+          (when (and smtp-auth-passwd
+                     ;; Don't save OAuth 2.0 token, because it expires quickly
+                     ;; relative to a typical rate of sending email
+                     (not (and auth-url token-url)))
             (hash-set! smtp-passwords (cons smtp-auth-user smtp-server-to-use) 
                        smtp-auth-passwd)))
         

@@ -33,6 +33,7 @@
 (define browser-eventspace (make-eventspace))
 (define browser-frame #f)
 (define browser-wv #f)
+(define showing? #f)
 
 (define (start-browser!)
   (unless browser-frame
@@ -57,13 +58,21 @@
     (queue-callback
      (lambda ()
        (void (send browser-wv set-url url))
-       (send browser-frame show #t)
+       (set! showing? #t)
+       (thread
+        (lambda ()
+          (sleep 2) ;; delay frame's appearance; maybe it will finish on its own
+          (queue-callback
+           (lambda ()
+             (when showing?
+               (send browser-frame show #t))))))
        (channel-put ch 'done))))
   (channel-get ch)
   (lambda ()
     (parameterize ([current-eventspace browser-eventspace])
       (queue-callback
        (lambda ()
+         (set! showing? #f)
          (send browser-frame show #f))))))
 
 (define wk-web-view%

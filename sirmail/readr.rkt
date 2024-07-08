@@ -224,84 +224,94 @@
                    [() (connect 'reuse)]
                    [(mode) (connect 'reuse void void)]
                    [(mode break-bad break-ok)
-                    
-                    (define (with-disconnect-handler thunk #:on-error [on-error void])
-                      (with-handlers ([void (lambda (exn)
-                                              (on-error)
-                                              (force-disconnect)
-                                              (status "")
-                                              (raise exn))])
-                        (break-ok)
-                        (begin0
-                          (thunk)
-                          (break-bad))))
-                    
-                    
-                    (if connection
-                        
-                        ;; Already Connected
-                        (cond
-                          [(eq? mode 'reselect)
-                           (let-values ([(count new) (with-disconnect-handler
-                                                       (lambda ()
-                                                         (imap-noop connection)))])
-                             (check-validity (or (imap-uidvalidity connection) 0) void)
-                             (values connection (imap-messages connection) (imap-new? connection)))]
-                          [(eq? mode 'check-new)
-                           (let-values ([(count new) (with-disconnect-handler
-                                                       (lambda ()
-                                                         (imap-noop connection)))])
-                             (values connection message-count (imap-new? connection)))]
-                          [else
-                           (values connection message-count (imap-new? connection))])
-                        
-                        ;; New connection
-                        (begin
-                          (let* ([auth-url (get-pref 'sirmail:oauth2-auth-url)]
-                                 [token-url (get-pref 'sirmail:oauth2-token-url)]
-                                 [pw (or (get-PASSWORD)
-                                         (and auth-url
-                                              token-url
-                                              (begin
-                                                (set! connection-custodian (make-custodian))
-                                                (parameterize ([current-custodian connection-custodian])
-                                                  (with-disconnect-handler
-                                                    (lambda ()
-                                                      (oauth2-get-access-token auth-url token-url
-                                                                               (get-pref 'sirmail:oauth2-client-id)))))))
-                                         (let ([p (get-pw-from-user (USERNAME) main-frame)])
-                                           (unless p (raise-user-error 'connect "connection canceled"))
-                                           p))])
-                            (let*-values ([(imap count new) (let-values ([(server port-no)
-                                                                          (parse-server-name (IMAP-SERVER)
-                                                                                             (if (get-pref 'sirmail:use-ssl?) 993 143))])
-                                                              (set! connection-custodian (make-custodian))
-                                                              (parameterize ([current-custodian connection-custodian])
-                                                                (with-disconnect-handler
-                                                                  #:on-error (lambda () (set-PASSWORD #f))
-                                                                  (lambda ()
-                                                                    (if (get-pref 'sirmail:use-ssl?)
-                                                                        (let ([c (ssl-make-client-context)])
-                                                                          (let ([cert (get-pref 'sirmail:server-certificate)])
-                                                                            (when cert
-                                                                              (ssl-set-verify! c #t)
-                                                                              (ssl-load-verify-root-certificates! c cert)))
-                                                                          (let-values ([(in out) (ssl-connect server port-no c)])
-                                                                            (imap-connect* in out (USERNAME) pw mailbox-name
-                                                                                           #:xoauth2? (and auth-url token-url))))
-                                                                        (parameterize ([imap-port-number port-no])
-                                                                          (imap-connect server (USERNAME) pw mailbox-name)))))))])
-                              (unless (get-PASSWORD)
-                                (set-PASSWORD pw))
-                              (status "(Connected, ~a messages)" count)
-                              (with-disconnect-handler
-                                (lambda ()
-                                  (check-validity (or (imap-uidvalidity imap) 0) 
-                                                  (lambda () (imap-disconnect imap)))))
-                              (set! connection imap)
-                              (set! message-count count)
-                              (send disconnected-msg show #f)
-                              (values imap count (imap-new? imap))))))])])
+                    ;; connect will retry on failure to deal with OAuth timeouts; to support that
+                    ;; `mode` can be an integer to indicate how many tries there have been already
+                    (with-handlers* ([(lambda (exn) (eq? exn 'try-again))
+                                      (lambda (exn)
+                                        (break-bad)
+                                        (define new-mode (if (integer? mode) (add1 mode) 1))
+                                        (connect new-mode break-bad break-ok))])
+                      
+                      (define (with-disconnect-handler thunk #:on-error [on-error void])
+                        (with-handlers* ([void (lambda (exn)
+                                                 (on-error)
+                                                 (force-disconnect)
+                                                 (status "")
+                                                 (if (or (eqv? mode 2)
+                                                         (exn:break? exn))
+                                                     (raise exn)
+                                                     (raise 'try-again)))])
+                          (break-ok)
+                          (begin0
+                            (thunk)
+                            (break-bad))))
+                      
+                      
+                      (if connection
+                          
+                          ;; Already connected
+                          (cond
+                            [(eq? mode 'reselect)
+                             (let-values ([(count new) (with-disconnect-handler
+                                                         (lambda ()
+                                                           (imap-noop connection)))])
+                               (check-validity (or (imap-uidvalidity connection) 0) void)
+                               (values connection (imap-messages connection) (imap-new? connection)))]
+                            [(eq? mode 'check-new)
+                             (let-values ([(count new) (with-disconnect-handler
+                                                         (lambda ()
+                                                           (imap-noop connection)))])
+                               (values connection message-count (imap-new? connection)))]
+                            [else
+                             (values connection message-count (imap-new? connection))])
+                          
+                          ;; New connection
+                          (begin
+                            (let* ([auth-url (get-pref 'sirmail:oauth2-auth-url)]
+                                   [token-url (get-pref 'sirmail:oauth2-token-url)]
+                                   [pw (or (get-PASSWORD)
+                                           (and auth-url
+                                                token-url
+                                                (begin
+                                                  (set! connection-custodian (make-custodian))
+                                                  (parameterize ([current-custodian connection-custodian])
+                                                    (with-disconnect-handler
+                                                      (lambda ()
+                                                        (oauth2-get-access-token auth-url token-url
+                                                                                 (get-pref 'sirmail:oauth2-client-id)))))))
+                                           (let ([p (get-pw-from-user (USERNAME) main-frame)])
+                                             (unless p (raise-user-error 'connect "connection canceled"))
+                                             p))])
+                              (let*-values ([(imap count new) (let-values ([(server port-no)
+                                                                            (parse-server-name (IMAP-SERVER)
+                                                                                               (if (get-pref 'sirmail:use-ssl?) 993 143))])
+                                                                (set! connection-custodian (make-custodian))
+                                                                (parameterize ([current-custodian connection-custodian])
+                                                                  (with-disconnect-handler
+                                                                    #:on-error (lambda () (set-PASSWORD #f))
+                                                                    (lambda ()
+                                                                      (if (get-pref 'sirmail:use-ssl?)
+                                                                          (let ([c (ssl-make-client-context)])
+                                                                            (let ([cert (get-pref 'sirmail:server-certificate)])
+                                                                              (when cert
+                                                                                (ssl-set-verify! c #t)
+                                                                                (ssl-load-verify-root-certificates! c cert)))
+                                                                            (let-values ([(in out) (ssl-connect server port-no c)])
+                                                                              (imap-connect* in out (USERNAME) pw mailbox-name
+                                                                                             #:xoauth2? (and auth-url token-url))))
+                                                                          (parameterize ([imap-port-number port-no])
+                                                                            (imap-connect server (USERNAME) pw mailbox-name)))))))])
+                                (unless (get-PASSWORD)
+                                  (set-PASSWORD pw))
+                                (status "(Connected, ~a messages)" count)
+                                (with-disconnect-handler
+                                  (lambda ()
+                                    (check-validity (or (imap-uidvalidity imap) 0) 
+                                                    (lambda () (imap-disconnect imap)))))
+                                (set! connection imap)
+                                (set! message-count count)
+                                (send disconnected-msg show #f)
+                                (values imap count (imap-new? imap)))))))])])
          connect)
        (lambda ()
          (when connection
