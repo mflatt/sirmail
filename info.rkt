@@ -6,7 +6,7 @@
                "compatibility-lib"
                "drracket" ; for browser/htmltext
                "gui-lib"
-               ["net-lib" #:version "1.2"]
+               ["net-lib" #:version "1.3"]
                "parser-tools-lib"
                "scheme-lib"
                "syntax-color-lib"

@@ -4,8 +4,7 @@
 
   (require "sirmails.rkt")
 
-  (require net/imap-sig
-           net/smtp-sig
+  (require net/smtp-sig
            net/head-sig
            net/base64-sig
            net/mime-sig
@@ -24,7 +23,6 @@
   (define-compound-unit/infer sirmail@
     (import (ENV : sirmail:environment^)
             mred^
-            imap^
             smtp^
             head^
             base64^

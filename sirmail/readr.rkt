@@ -23,7 +23,7 @@
          "spell.rkt"
          "sirmails.rkt"
          "pref.rkt"
-         net/imap-sig
+         net/imap
          net/smtp-sig
          net/head-sig
          net/base64-sig
@@ -52,7 +52,6 @@
           sirmail:utils^
           sirmail:send^
           mred^
-          imap^
           smtp^
           head^
           base64^
@@ -568,16 +567,17 @@
     (unless (null? marked)
       (when (and trash?
                  (or ((length marked) . < . 32)
-                     (eqv? (message-box/custom
-                            "Purge"
-                            (format "Permanently and immediately delete ~a items, or merely move to Trash?"
-                                    (length marked))
-                            "Trash"
-                            "Delete"
-                            #f
-                            #f
-                            '(default=1))
-                           1)))
+                     (let ([answer (message-box/custom
+                                    "Purge"
+                                    (format "Permanently and immediately delete ~a items, or merely move to Trash?"
+                                            (length marked))
+                                    "Trash"
+                                    "Delete"
+                                    #f
+                                    #f
+                                    '(default=1))])
+                       (unless answer (error "canceled"))
+                       (eqv? answer 1))))
         (copy-messages-to marked (TRASH-MAILBOX)))
       (let-values ([(imap count new?) (connect)])
         (with-handlers ([void
@@ -595,46 +595,50 @@
                           (map message-position marked))
             (error "expunge notification list doesn't match expunge request"))
           (bad-break))
-        (set! mailbox
-              (filter
-               (lambda (m) (not (memq m marked)))
-               mailbox))
-        (rebuild-mailbox-table!)
-        (let loop ([l mailbox][p 1])
-          (unless (null? l)
-            (set-message-position! (car l) p)
-            (loop (cdr l) (add1 p))))
-        (write-mailbox)
-        (let* ([problems null]
-               [try-delete
-                (lambda (f)
-                  (with-handlers ([void 
-                                   (lambda (x)
-                                     (set! problems (cons x problems)))])
-                    (delete-file f)))])
-          (for-each
-           (lambda (m)
-             (let ([uid (message-uid m)])
-               (try-delete (build-path mailbox-dir (format "~a" uid)))
-               (when (message-downloaded? m)
-                 (try-delete (build-path mailbox-dir (format "~abody" uid))))))
-           marked)
-          (unless (null? problems)
-            (message-box "Warning"
-                         (apply
-                          string-append
-                          "There we problems deleting some local files:"
-                          (map
-                           (lambda (x)
-                             (string-append
-                              (string #\newline)
-                              (if (exn? x)
-                                  (exn-message x)
-                                  "<unknown exn>")))
-                           problems))
-                         main-frame))
-          (display-message-count (length mailbox))
-          (status "Messages deleted")))))
+        (locally-remove-marked marked)
+        (status "Messages deleted"))))
+
+  (define (locally-remove-marked marked)
+    (set! mailbox
+          (filter
+           (lambda (m) (not (memq m marked)))
+           mailbox))
+    (rebuild-mailbox-table!)
+    (let loop ([l mailbox][p 1])
+      (unless (null? l)
+        (set-message-position! (car l) p)
+        (loop (cdr l) (add1 p))))
+    (write-mailbox)
+    (let* ([problems null]
+           [try-delete
+            (lambda (f)
+              (with-handlers ([void 
+                               (lambda (x)
+                                 (set! problems (cons x problems)))])
+                (delete-file f)))])
+      (for-each
+       (lambda (m)
+         (let ([uid (message-uid m)])
+           (try-delete (build-path mailbox-dir (format "~a" uid)))
+           (when (message-downloaded? m)
+             (try-delete (build-path mailbox-dir (format "~abody" uid))))))
+       marked)
+      (unless (null? problems)
+        (message-box "Warning"
+                     (apply
+                      string-append
+                      "There we problems deleting some local files:"
+                      (map
+                       (lambda (x)
+                         (string-append
+                          (string #\newline)
+                          (if (exn? x)
+                              (exn-message x)
+                              "<unknown exn>")))
+                       problems))
+                     main-frame))
+      (display-message-count (length mailbox))
+      ))
 
   ;; purge-marked : -> void
   ;; purges the marked mailbox messages.
@@ -1414,6 +1418,22 @@
                    (if mbox
                        (copy-marked-to mbox)
                        (bell)))))
+
+  (make-object (class menu-item%
+                 (inherit enable set-label)
+                 (define/override (on-demand)
+                   (let ([folder (get-active-folder)])
+                     (enable folder)
+                     (when folder
+                       (set-label (format "&Move Marked to ~a" folder)))))
+                 (super-instantiate ()))
+               "&Move Marked to Selected Folder" 
+               msg-menu
+               (lambda x
+                 (let ([mbox (get-active-folder)])
+                   (if mbox
+                       (move-marked-to mbox)
+                       (bell)))))
   
   (make-object separator-menu-item% msg-menu)
   (define sort-menu (make-object menu% "&Sort" msg-menu))
@@ -1901,6 +1921,30 @@
         (imap-copy imap (map message-position marked) dest-mailbox-name)
         (status "Copied to ~a" dest-mailbox-name))))
   
+  (define (move-marked-to dest-mailbox-name)
+    (header-changing-action 
+     #f
+     (lambda ()
+       (let* ([marked (filter message-marked? mailbox)])
+         (as-background
+          enable-main-frame
+          (lambda (break-bad break-ok)
+            (move-messages-to marked dest-mailbox-name))
+          close-frame)))))
+  
+  (define (move-messages-to marked dest-mailbox-name)
+    (unless (null? marked)
+      (let-values ([(imap count new?) (connect)])
+        (check-positions imap marked)
+        (status "Moving messages to ~a..." dest-mailbox-name)
+        (imap-move imap (map message-position marked) dest-mailbox-name)
+        (status "Moved to ~a" dest-mailbox-name)
+        (unless (equal? (imap-get-expunges imap)
+                        (map message-position marked))
+          (error "expunge notification list doesn't match move request"))
+        (locally-remove-marked marked)
+        (status "Updated after move"))))
+
   (define (auto-file)
     (as-background
      enable-main-frame

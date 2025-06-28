@@ -19,7 +19,7 @@
            "repl.rkt"
            "oauth2.rkt")
 
-  (require net/imap-sig
+  (require net/imap
            net/smtp-sig
            net/head-sig
            net/base64-sig
@@ -37,7 +37,6 @@
 	      sirmail:read^
 	      (prefix env: sirmail:environment^)
 	      mred^
-	      imap^
 	      smtp^
 	      head^
 	      base64^
